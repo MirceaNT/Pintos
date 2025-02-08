@@ -1,4 +1,4 @@
-Pintos test
+Pintos
 ======
 
 Pintos labs for EE 461S at UT Austin.
