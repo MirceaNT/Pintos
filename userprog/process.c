@@ -20,7 +20,7 @@
 #include "userprog/tss.h"
 
 #define LOGGING_LEVEL 6
-#define MAX_ARGS 50
+#define MAX_ARGS 100
 
 #include <log.h>
 
