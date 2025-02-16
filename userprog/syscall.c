@@ -5,6 +5,7 @@
 #include "threads/thread.h"
 #include "userprog/syscall.h"
 
+bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
 
 void syscall_init(void)
@@ -62,6 +63,13 @@ You must use appropriate synchronization to ensure this.
 
 int sys_exec(struct intr_frame *f)
 {
+    // Somehow use semaphores I think since I use locks for file?? Thoughts future me?
+    /*
+    get args
+    call process_execute
+    save pid
+    do synchronization stuff somehow lol, not today buddy
+    */
     return 0;
 }
 
@@ -94,14 +102,17 @@ opening the new file is a separate operation which would require a open system c
 int sys_create(struct intr_frame *f)
 {
     char *filename = *((char *)f->esp + 4);
+
     // do I need to check the the filename pointer is in valid user space?
     if (!is_user_vaddr(filename) || filename == NULL)
     {
         return 0;
     }
+    lock_acquire(&file_lock);
     unsigned initial_size = *(unsigned *)((char *)f->esp + 8);
     bool success = filesys_create(filename, initial_size);
     f->esp = ((char *)f->esp) + 12;
+    lock_release(&file_lock);
     return success ? 1 : 0;
 }
 /*
@@ -112,12 +123,15 @@ See Removing an Open File, for details.
 int sys_remove(struct intr_frame *f)
 {
     char *filename = *((char *)f->esp + 4);
+    lock_acquire(&file_lock);
     if (!is_user_vaddr(filename) || filename == NULL)
     {
+        lock_release(&file_lock);
         return -1;
     }
     bool success = filesys_remove(filename);
     f->esp = ((char *)(f->esp)) + 4;
+    lock_release(&file_lock);
     return success;
 }
 
@@ -131,12 +145,15 @@ See Removing an Open File, for details.
 int sys_open(struct intr_frame *f)
 {
     char *filename = *(((char *)f->esp) + 4);
+    lock_acquire(&file_lock);
     if (!is_user_vaddr(filename) || filename == NULL)
     {
+        lock_release(&file_lock);
         return -1;
     }
     bool success = filesys_open(filename);
     f->esp = ((char *)f->esp) + 4;
+    lock_release(&file_lock);
     return success;
 }
 
@@ -145,7 +162,17 @@ Returns the size, in bytes, of the file open as fd.
 */
 int sys_filesize(struct intr_frame *f)
 {
-    return 0;
+    int fd = *(int *)((char *)f->esp + 4);
+    lock_acquire(&file_lock);
+    struct file *CurrentFile = get_file(fd);
+    if (CurrentFile == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    int filesize = file_length(CurrentFile);
+    lock_release(&file_lock);
+    return filesize;
 }
 
 /*
@@ -171,10 +198,16 @@ int sys_read(struct intr_frame *f)
     }
     else
     {
+        lock_acquire(&file_lock);
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
+        {
+            lock_release(&file_lock);
             return -1;
-        return file_read(entry->file, buffer, size);
+        }
+        int bytes_read = file_read(entry->file, buffer, size);
+        lock_release(&file_lock);
+        return bytes_read;
     }
 }
 
@@ -203,10 +236,16 @@ int sys_write(struct intr_frame *f)
     }
     else
     {
+        lock_acquire(&file_lock);
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
+        {
             return -1;
-        return file_write(entry->file, buffer, size);
+        }
+
+        int bite_size = file_write(entry->file, buffer, size);
+        lock_release(&file_lock);
+        return bite_size;
     }
 }
 
@@ -244,6 +283,8 @@ its open file descriptors, as if by calling this function for each one.
 */
 int sys_close(struct intr_frame *f)
 {
+    lock_acquire(&file_lock);
+
     int fd = *(int *)((char *)f->esp + 4);
 
     struct fd_entry *entry = get_fd_entry(fd);
@@ -257,6 +298,7 @@ int sys_close(struct intr_frame *f)
     list_remove(&entry->elem);
     free(entry);
 
+    lock_release(&file_lock);
     return 0;
 }
 
@@ -280,7 +322,11 @@ syscall_function syscall_table[NUM_SYSCALLS] = {
 static void
 syscall_handler(struct intr_frame *f)
 {
-
+    if (!lock_inited)
+    {
+        lock_init(&file_lock);
+        lock_inited = true;
+    }
     int callnumber = *(int *)(f->esp);
 
     if (callnumber < 0 || callnumber > NUM_SYSCALLS || syscall_table[callnumber] == NULL)
