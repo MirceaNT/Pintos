@@ -49,6 +49,8 @@ Conventionally, a status of 0 indicates success and nonzero values indicate erro
 */
 int sys_exit(struct intr_frame *f)
 {
+    int status = *(int *)((char *)f->esp + 4);
+    // Do i just need to call thread exit??? Thoughts?
     return 0;
 }
 
