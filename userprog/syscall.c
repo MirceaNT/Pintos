@@ -93,9 +93,17 @@ opening the new file is a separate operation which would require a open system c
 */
 int sys_create(struct intr_frame *f)
 {
-    return 0;
+    char *filename = *((char *)f->esp + 4);
+    // do I need to check the the filename pointer is in valid user space?
+    if (!is_user_vaddr(filename) || filename == NULL)
+    {
+        return 0;
+    }
+    unsigned initial_size = *(unsigned *)((char *)f->esp + 8);
+    bool success = filesys_create(filename, initial_size);
+    f->esp = ((char *)f->esp) + 12;
+    return success ? 1 : 0;
 }
-
 /*
 Deletes the file called file. Returns true if successful, false otherwise.
 A file may be removed regardless of whether it is open or closed, and removing an open file does not close it.
@@ -103,7 +111,14 @@ See Removing an Open File, for details.
 */
 int sys_remove(struct intr_frame *f)
 {
-    return 0;
+    char *filename = *((char *)f->esp + 4);
+    if (!is_user_vaddr(filename) || filename == NULL)
+    {
+        return -1;
+    }
+    bool success = filesys_remove(filename);
+    f->esp = ((char *)(f->esp)) + 4;
+    return success;
 }
 
 /*
@@ -115,7 +130,14 @@ See Removing an Open File, for details.
 */
 int sys_open(struct intr_frame *f)
 {
-    return 0;
+    char *filename = *(((char *)f->esp) + 4);
+    if (!is_user_vaddr(filename) || filename == NULL)
+    {
+        return -1;
+    }
+    bool success = filesys_open(filename);
+    f->esp = ((char *)f->esp) + 4;
+    return success;
 }
 
 /*
@@ -133,7 +155,27 @@ read (due to a condition other than end of file). Fd 0 reads from the keyboard u
 */
 int sys_read(struct intr_frame *f)
 {
-    return 0;
+    int fd = *(int *)((char *)f->esp + 4);
+    void *buffer = *(void **)((char *)f->esp + 8);
+    unsigned size = *(unsigned *)((char *)f->esp + 12);
+
+    if (fd == 0)
+    {
+        unsigned i;
+        char *buf = (char *)buffer;
+        for (i = 0; i < size; i++)
+        {
+            buf[i] = input_getc();
+        }
+        return size;
+    }
+    else
+    {
+        struct fd_entry *entry = get_fd_entry(fd);
+        if (entry == NULL || entry->file == NULL)
+            return -1;
+        return file_read(entry->file, buffer, size);
+    }
 }
 
 /*
@@ -148,7 +190,24 @@ confusing both human readers and our grading scripts.
 */
 int sys_write(struct intr_frame *f)
 {
-    return 0;
+
+    int fd = *(int *)(f->esp + 4);
+    const void *buffer = *(const void **)(f->esp + 8);
+    unsigned size = *(unsigned *)(f->esp + 12);
+
+    if (fd == 1)
+    {
+
+        putbuf(buffer, size);
+        return size;
+    }
+    else
+    {
+        struct fd_entry *entry = get_fd_entry(fd);
+        if (entry == NULL || entry->file == NULL)
+            return -1;
+        return file_write(entry->file, buffer, size);
+    }
 }
 
 /*
@@ -185,6 +244,19 @@ its open file descriptors, as if by calling this function for each one.
 */
 int sys_close(struct intr_frame *f)
 {
+    int fd = *(int *)((char *)f->esp + 4);
+
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL)
+    {
+        return -1;
+    }
+
+    file_close(entry->file);
+
+    list_remove(&entry->elem);
+    free(entry);
+
     return 0;
 }
 
@@ -206,7 +278,7 @@ syscall_function syscall_table[NUM_SYSCALLS] = {
 };
 
 static void
-syscall_handler(struct intr_frame *f UNUSED)
+syscall_handler(struct intr_frame *f)
 {
 
     int callnumber = *(int *)(f->esp);
