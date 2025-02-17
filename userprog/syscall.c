@@ -5,8 +5,29 @@
 #include "threads/thread.h"
 #include "userprog/syscall.h"
 
+#include "threads/synch.h"
+#include "threads/vaddr.h"
+#include "devices/shutdown.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+
 bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
+struct lock file_lock;
+struct fd_entry *get_fd_entry(int fd)
+{
+    struct list_elem *e;
+    struct thread *curr = thread_current();
+
+    for (e = list_begin(&curr->fd_list); e != list_end(&curr->fd_list);
+         e = list_next(e))
+    {
+        struct fd_entry *entry = list_entry(e, struct fd_entry, elem);
+        if (entry->fd == fd)
+            return entry;
+    }
+    return NULL;
+}
 
 void syscall_init(void)
 {
@@ -15,19 +36,19 @@ void syscall_init(void)
 
 enum
 {
-    SYS_HALT,
-    SYS_EXIT,
-    SYS_EXEC,
-    SYS_WAIT,
-    SYS_CREATE,
-    SYS_REMOVE,
-    SYS_OPEN,
-    SYS_FILESIZE,
-    SYS_READ,
-    SYS_WRITE,
-    SYS_SEEK,
-    SYS_TELL,
-    SYS_CLOSE,
+    SYSTEM_HALT,
+    SYSTEM_EXIT,
+    SYSTEM_EXEC,
+    SYSTEM_WAIT,
+    SYSTEM_CREATE,
+    SYSTEM_REMOVE,
+    SYSTEM_OPEN,
+    SYSTEM_FILESIZE,
+    SYSTEM_READ,
+    SYSTEM_WRITE,
+    SYSTEM_SEEK,
+    SYSTEM_TELL,
+    SYSTEM_CLOSE,
     NUM_SYSCALLS
 };
 
@@ -40,6 +61,7 @@ This should be seldom used, because you lose some information about possible dea
 int sys_halt(struct intr_frame *f)
 {
     shutdown_power_off();
+    return 0;
 }
 
 /*
@@ -50,8 +72,10 @@ Conventionally, a status of 0 indicates success and nonzero values indicate erro
 int sys_exit(struct intr_frame *f)
 {
     int status = *(int *)((char *)f->esp + 4);
-    // Do i just need to call thread exit??? Thoughts?
-    return 0;
+    struct thread *current = thread_current();
+    current->status = status;
+    thread_exit();
+    return status;
 }
 
 /*
@@ -103,7 +127,7 @@ opening the new file is a separate operation which would require a open system c
 */
 int sys_create(struct intr_frame *f)
 {
-    char *filename = *((char *)f->esp + 4);
+    char *filename = *(char **)((char *)f->esp + 4);
 
     // do I need to check the the filename pointer is in valid user space?
     if (!is_user_vaddr(filename) || filename == NULL)
@@ -124,7 +148,7 @@ See Removing an Open File, for details.
 */
 int sys_remove(struct intr_frame *f)
 {
-    char *filename = *((char *)f->esp + 4);
+    char *filename = *(char **)((char *)f->esp + 4);
     lock_acquire(&file_lock);
     if (!is_user_vaddr(filename) || filename == NULL)
     {
@@ -146,7 +170,7 @@ See Removing an Open File, for details.
 */
 int sys_open(struct intr_frame *f)
 {
-    char *filename = *(((char *)f->esp) + 4);
+    char *filename = *(char **)(((char *)f->esp) + 4);
     lock_acquire(&file_lock);
     if (!is_user_vaddr(filename) || filename == NULL)
     {
@@ -166,7 +190,7 @@ int sys_filesize(struct intr_frame *f)
 {
     int fd = *(int *)((char *)f->esp + 4);
     lock_acquire(&file_lock);
-    struct file *CurrentFile = get_file(fd);
+    struct file *CurrentFile = 0; // create a function that finds a file in your fd table
     if (CurrentFile == NULL)
     {
         lock_release(&file_lock);
@@ -226,9 +250,9 @@ confusing both human readers and our grading scripts.
 int sys_write(struct intr_frame *f)
 {
 
-    int fd = *(int *)(f->esp + 4);
-    const void *buffer = *(const void **)(f->esp + 8);
-    unsigned size = *(unsigned *)(f->esp + 12);
+    int fd = *(int *)((char *)f->esp + 4);
+    const void *buffer = *(const void **)((char *)f->esp + 8);
+    unsigned size = *(unsigned *)((char *)f->esp + 12);
 
     if (fd == 1)
     {
@@ -305,19 +329,19 @@ int sys_close(struct intr_frame *f)
 }
 
 syscall_function syscall_table[NUM_SYSCALLS] = {
-    [SYS_HALT] = sys_halt,
-    [SYS_EXIT] = sys_exit,
-    [SYS_EXEC] = sys_exec,
-    [SYS_WAIT] = sys_wait,
-    [SYS_CREATE] = sys_create,
-    [SYS_REMOVE] = sys_remove,
-    [SYS_OPEN] = sys_open,
-    [SYS_FILESIZE] = sys_filesize,
-    [SYS_READ] = sys_read,
-    [SYS_WRITE] = sys_write,
-    [SYS_SEEK] = sys_seek,
-    [SYS_TELL] = sys_tell,
-    [SYS_CLOSE] = sys_close
+    [SYSTEM_HALT] = sys_halt,
+    [SYSTEM_EXIT] = sys_exit,
+    [SYSTEM_EXEC] = sys_exec,
+    [SYSTEM_WAIT] = sys_wait,
+    [SYSTEM_CREATE] = sys_create,
+    [SYSTEM_REMOVE] = sys_remove,
+    [SYSTEM_OPEN] = sys_open,
+    [SYSTEM_FILESIZE] = sys_filesize,
+    [SYSTEM_READ] = sys_read,
+    [SYSTEM_WRITE] = sys_write,
+    [SYSTEM_SEEK] = sys_seek,
+    [SYSTEM_TELL] = sys_tell,
+    [SYSTEM_CLOSE] = sys_close
 
 };
 
