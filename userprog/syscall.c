@@ -208,14 +208,11 @@ int sys_open(struct intr_frame *f)
             lock_release(&file_lock);
             return fd;
         }
-
-        file_close(CurrentFile);
-        lock_release(&file_lock);
-        return -1;
     }
 
+    file_close(CurrentFile);
     lock_release(&file_lock);
-    return CurrentFile ? 1 : 0;
+    return -1;
 }
 
 /*
@@ -225,13 +222,13 @@ int sys_filesize(struct intr_frame *f)
 {
     int fd = *(int *)((char *)f->esp + 4);
     lock_acquire(&file_lock);
-    struct file *CurrentFile = get_fd_entry(fd); // create a function that finds a file in your fd table :) IT'S MADE!!
-    if (CurrentFile == NULL)
+    struct fd_entry *CurrentFD = get_fd_entry(fd); // create a function that finds a file in your fd table :) IT'S MADE!!
+    if (CurrentFD == NULL)
     {
         lock_release(&file_lock);
         return -1;
     }
-    int filesize = file_length(CurrentFile);
+    int filesize = file_length(CurrentFD->file);
     lock_release(&file_lock);
     return filesize;
 }
@@ -332,7 +329,7 @@ These semantics are implemented in the file system and do not require any specia
 int sys_seek(struct intr_frame *f)
 {
     int fd = *(int *)((char *)f->esp + 4);
-    unsigned position = *(unsigned *)((char *)f->esp + 4);
+    unsigned position = *(unsigned *)((char *)f->esp + 8);
 
     lock_acquire(&file_lock);
     struct fd_entry *entry = get_fd_entry(fd);
@@ -360,9 +357,9 @@ int sys_tell(struct intr_frame *f)
         lock_release(&file_lock);
         return -1;
     }
-    file_tell(entry->file);
+    int offset = file_tell(entry->file);
     lock_release(&file_lock);
-    return 0;
+    return offset;
 }
 
 /*
