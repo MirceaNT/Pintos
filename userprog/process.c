@@ -104,8 +104,12 @@ start_process(void *file_name_)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+int done = 0;
 int process_wait(tid_t child_tid UNUSED)
 {
+    while (done == 0)
+    {
+    }
     return -1;
 }
 
@@ -320,6 +324,7 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
     }
 
     /* Set up stack. */
+    char buffer[30] = "/bin/ls -l foo bar";
     if (!setup_stack(esp, file_name))
     {
         goto done;
@@ -507,7 +512,7 @@ setup_stack(void **esp, const char *filename)
             char *arg_addresses[MAX_ARGS];
 
             // copy over the tokenized filename (in reverse order)
-            for (int i = argc; i > 0; i--)
+            for (int i = argc - 1; i >= 0; i--)
             {
                 size_t arg_len = strlen(argv[i]) + 1;
                 *esp = (void *)((uint8_t *)(*esp) - arg_len);
@@ -529,7 +534,7 @@ setup_stack(void **esp, const char *filename)
             *(uint32_t *)(*esp) = 0;
 
             // push the argument pointers (in reverse order)
-            for (int i = argc; i > 0; i--)
+            for (int i = argc - 1; i >= 0; i--)
             {
                 *esp = (void *)((uint8_t *)(*esp) - 4);
                 *(char **)(*esp) = arg_addresses[i];
@@ -552,7 +557,7 @@ setup_stack(void **esp, const char *filename)
         {
             palloc_free_page(kpage);
         }
-        // hex_dump( *(int*)esp, *esp, 128, true ); // NOTE: uncomment this to check arg passing
+        // hex_dump(*(int *)esp, *esp, 128, true); // NOTE: uncomment this to check arg passing
     }
     palloc_free_page(filename_copy);
     return success;

@@ -14,20 +14,6 @@
 bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
 struct lock file_lock;
-struct fd_entry *get_fd_entry(int fd)
-{
-    struct list_elem *e;
-    struct thread *curr = thread_current();
-
-    for (e = list_begin(&curr->fd_list); e != list_end(&curr->fd_list);
-         e = list_next(e))
-    {
-        struct fd_entry *entry = list_entry(e, struct fd_entry, elem);
-        if (entry->fd == fd)
-            return entry;
-    }
-    return NULL;
-}
 
 void syscall_init(void)
 {
@@ -69,11 +55,16 @@ Terminates the current user program, returning status to the kernel.
 If the process's parent waits for it (see below), this is the status that will be returned.
 Conventionally, a status of 0 indicates success and nonzero values indicate errors.
 */
+
+extern int done;
+
 int sys_exit(struct intr_frame *f)
 {
     int status = *(int *)((char *)f->esp + 4);
     struct thread *current = thread_current();
     current->status = status;
+    done = 1;
+    printf("%s: exit(%d)\n", current->name, status);
     thread_exit();
     return status;
 }
@@ -117,6 +108,8 @@ Implementing this system call requires considerably more work than any of the re
 */
 int sys_wait(struct intr_frame *f)
 {
+    // int pid = *(int *)((char *)f->esp + 4);
+    // process_wait(pid);
     return 0;
 }
 
@@ -137,7 +130,7 @@ int sys_create(struct intr_frame *f)
     lock_acquire(&file_lock);
     unsigned initial_size = *(unsigned *)((char *)f->esp + 8);
     bool success = filesys_create(filename, initial_size);
-    f->esp = ((char *)f->esp) + 12;
+    // f->esp = ((char *)f->esp) + 12;
     lock_release(&file_lock);
     return success ? 1 : 0;
 }
@@ -156,7 +149,7 @@ int sys_remove(struct intr_frame *f)
         return -1;
     }
     bool success = filesys_remove(filename);
-    f->esp = ((char *)(f->esp)) + 4;
+    // f->esp = ((char *)(f->esp)) + 4;
     lock_release(&file_lock);
     return success;
 }
@@ -178,7 +171,7 @@ int sys_open(struct intr_frame *f)
         return -1;
     }
     bool success = filesys_open(filename);
-    f->esp = ((char *)f->esp) + 4;
+    // f->esp = ((char *)f->esp) + 4;
     lock_release(&file_lock);
     return success;
 }
@@ -225,7 +218,7 @@ int sys_read(struct intr_frame *f)
     else
     {
         lock_acquire(&file_lock);
-        struct fd_entry *entry = get_fd_entry(fd);
+        struct fd_entry *entry = 0;
         if (entry == NULL || entry->file == NULL)
         {
             lock_release(&file_lock);
@@ -263,7 +256,7 @@ int sys_write(struct intr_frame *f)
     else
     {
         lock_acquire(&file_lock);
-        struct fd_entry *entry = get_fd_entry(fd);
+        struct fd_entry *entry = 0;
         if (entry == NULL || entry->file == NULL)
         {
             return -1;
@@ -311,9 +304,9 @@ int sys_close(struct intr_frame *f)
 {
     lock_acquire(&file_lock);
 
-    int fd = *(int *)((char *)f->esp + 4);
+    // int fd = *(int *)((char *)f->esp + 4);
 
-    struct fd_entry *entry = get_fd_entry(fd);
+    struct fd_entry *entry = 0;
     if (entry == NULL)
     {
         return -1;
@@ -321,7 +314,6 @@ int sys_close(struct intr_frame *f)
 
     file_close(entry->file);
 
-    list_remove(&entry->elem);
     free(entry);
 
     lock_release(&file_lock);
