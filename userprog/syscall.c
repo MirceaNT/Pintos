@@ -15,6 +15,16 @@ bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
 struct lock file_lock;
 
+struct fd_entry *get_fd_entry(int fd)
+{
+    struct thread *t = thread_current();
+    if (fd < 0 || fd >= 128)
+    {
+        return NULL;
+    }
+    return t->files[fd];
+}
+
 void syscall_init(void)
 {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -164,16 +174,48 @@ See Removing an Open File, for details.
 int sys_open(struct intr_frame *f)
 {
     char *filename = *(char **)(((char *)f->esp) + 4);
-    lock_acquire(&file_lock);
+
     if (!is_user_vaddr(filename) || filename == NULL)
+    {
+        return -1;
+    }
+
+    lock_acquire(&file_lock);
+    struct file *CurrentFile = filesys_open(filename);
+    if (CurrentFile == NULL)
     {
         lock_release(&file_lock);
         return -1;
     }
-    bool success = filesys_open(filename);
-    // f->esp = ((char *)f->esp) + 4;
+
+    struct thread *t = thread_current();
+    int fd;
+    for (fd = 2; fd < 128; fd++)
+    {
+        if (t->files[fd] == NULL)
+        {
+            /* Allocate fd_entry struct, fill it in. */
+            struct fd_entry *entry = malloc(sizeof *entry);
+            if (entry == NULL)
+            {
+                file_close(CurrentFile);
+                lock_release(&file_lock);
+                return -1;
+            }
+            entry->fd = fd;
+            entry->file = CurrentFile;
+            t->files[fd] = entry;
+            lock_release(&file_lock);
+            return fd;
+        }
+
+        file_close(CurrentFile);
+        lock_release(&file_lock);
+        return -1;
+    }
+
     lock_release(&file_lock);
-    return success;
+    return CurrentFile ? 1 : 0;
 }
 
 /*
@@ -183,7 +225,7 @@ int sys_filesize(struct intr_frame *f)
 {
     int fd = *(int *)((char *)f->esp + 4);
     lock_acquire(&file_lock);
-    struct file *CurrentFile = 0; // create a function that finds a file in your fd table
+    struct file *CurrentFile = get_fd_entry(fd); // create a function that finds a file in your fd table :) IT'S MADE!!
     if (CurrentFile == NULL)
     {
         lock_release(&file_lock);
@@ -205,6 +247,11 @@ int sys_read(struct intr_frame *f)
     void *buffer = *(void **)((char *)f->esp + 8);
     unsigned size = *(unsigned *)((char *)f->esp + 12);
 
+    if (!is_user_vaddr(buffer))
+    {
+        return -1;
+    }
+
     if (fd == 0)
     {
         unsigned i;
@@ -218,7 +265,7 @@ int sys_read(struct intr_frame *f)
     else
     {
         lock_acquire(&file_lock);
-        struct fd_entry *entry = 0;
+        struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
             lock_release(&file_lock);
@@ -247,16 +294,20 @@ int sys_write(struct intr_frame *f)
     const void *buffer = *(const void **)((char *)f->esp + 8);
     unsigned size = *(unsigned *)((char *)f->esp + 12);
 
+    if (!is_user_vaddr(buffer))
+    {
+        return -1;
+    }
+
     if (fd == 1)
     {
-
         putbuf(buffer, size);
         return size;
     }
     else
     {
         lock_acquire(&file_lock);
-        struct fd_entry *entry = 0;
+        struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
             return -1;
@@ -270,13 +321,8 @@ int sys_write(struct intr_frame *f)
 
 /*
 Changes the next byte to be read or written in open file fd to position, expressed in bytes from the beginning of the file.
-(Thus, a position of 0 is the file's start.)Changes the next byte to be read or written in open file fd to position,
-expressed in bytes from the beginning of the file. (Thus, a position of 0 is the file's start.)
+(Thus, a position of 0 is the file's start.)
 
-A seek past the current end of a file is not an error. A later read obtains 0 bytes, indicating end of file.
-A later write extends the file, filling any unwritten gap with zeros.
-(However, in Pintos files have a fixed length until project 4 is complete, so writes past end of file will return an error.)
-These semantics are implemented in the file system and do not require any special effort in system call implementation.
 A seek past the current end of a file is not an error. A later read obtains 0 bytes, indicating end of file.
 A later write extends the file, filling any unwritten gap with zeros.
 (However, in Pintos files have a fixed length until project 4 is complete, so writes past end of file will return an error.)
@@ -285,6 +331,18 @@ These semantics are implemented in the file system and do not require any specia
 
 int sys_seek(struct intr_frame *f)
 {
+    int fd = *(int *)((char *)f->esp + 4);
+    unsigned position = *(unsigned *)((char *)f->esp + 4);
+
+    lock_acquire(&file_lock);
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL || entry->file == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    file_seek(entry->file, position);
+    lock_release(&file_lock);
     return 0;
 }
 
@@ -293,6 +351,17 @@ Returns the position of the next byte to be read or written in open file fd, exp
 */
 int sys_tell(struct intr_frame *f)
 {
+    int fd = *(int *)((char *)f->esp + 4);
+
+    lock_acquire(&file_lock);
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL || entry->file == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    file_tell(entry->file);
+    lock_release(&file_lock);
     return 0;
 }
 
@@ -302,20 +371,21 @@ its open file descriptors, as if by calling this function for each one.
 */
 int sys_close(struct intr_frame *f)
 {
+
+    int fd = *(int *)((char *)f->esp + 4);
     lock_acquire(&file_lock);
 
-    // int fd = *(int *)((char *)f->esp + 4);
-
-    struct fd_entry *entry = 0;
+    struct fd_entry *entry = get_fd_entry(fd);
     if (entry == NULL)
     {
+        lock_release(&file_lock);
         return -1;
     }
 
     file_close(entry->file);
 
     free(entry);
-
+    thread_current()->files[fd] = NULL;
     lock_release(&file_lock);
     return 0;
 }
