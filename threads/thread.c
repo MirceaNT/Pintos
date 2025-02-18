@@ -107,40 +107,6 @@ void thread_init(void)
     init_thread(initial_thread, "main", PRI_DEFAULT);
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
-
-    list_init(&initial_thread->fd_list);
-    initial_thread->next_fd = 2;
-
-    struct fd_entry *stdin_entry = malloc(sizeof(struct fd_entry));
-    if (stdin_entry != NULL)
-    {
-        stdin_entry->fd = 0;
-        stdin_entry->file = NULL;
-        list_push_back(&initial_thread->fd_list, &stdin_entry->elem);
-    }
-
-    struct fd_entry *stdout_entry = malloc(sizeof(struct fd_entry));
-    if (stdout_entry != NULL)
-    {
-        stdout_entry->fd = 1;
-        stdout_entry->file = NULL;
-        list_push_back(&initial_thread->fd_list, &stdout_entry->elem);
-    }
-}
-
-static struct fd_entry *get_fd_entry(int fd)
-{
-    struct list_elem *e;
-    struct thread *curr = thread_current();
-
-    for (e = list_begin(&curr->fd_list); e != list_end(&curr->fd_list);
-         e = list_next(e))
-    {
-        struct fd_entry *entry = list_entry(e, struct fd_entry, elem);
-        if (entry->fd == fd)
-            return entry;
-    }
-    return NULL;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -228,6 +194,10 @@ tid_t thread_create(const char *name, int priority,
     {
         return TID_ERROR;
     }
+
+    // this is my best attempt at initializing the semaphores :)
+    sema_init(&t->semaphore1, 0);
+    sema_init(&t->semaphore2, 0);
 
     /* Initialize thread. */
     init_thread(t, name, priority);
@@ -499,6 +469,10 @@ init_thread(struct thread *t, const char *name, int priority)
     ASSERT(name != NULL);
 
     memset(t, 0, sizeof *t);
+
+    // have your file descriptor table clear
+    memset(t->files, 0, sizeof(t->files));
+
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t *)t + PGSIZE;

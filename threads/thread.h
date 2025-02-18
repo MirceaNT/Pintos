@@ -4,13 +4,13 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /*Added by Mircea to have a file descriptor stuff per thread*/
 struct fd_entry
 {
     int fd;
     struct file *file;
-    struct list_elem elem;
 };
 
 /* States in a thread's life cycle. */
@@ -110,11 +110,13 @@ struct thread
     unsigned magic; /* Detects stack overflow. */
 
     /*This is Mircea's code to handle file descriptor table*/
-    struct list fd_list;
-    int next_fd;
+    struct fd_entry *files[128];
+
+    // 2 semaphores for the wait
+    struct semaphore semaphore1;
+    struct semaphore semaphore2;
 };
 
-static struct fd_entry *get_fd_entry(int);
 /* If false (default), use round-robin scheduler.
  * If true, use multi-level feedback queue scheduler.
  * Controlled by kernel command-line option "-o mlfqs". */
