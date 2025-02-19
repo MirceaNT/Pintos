@@ -15,6 +15,15 @@ bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
 struct lock file_lock;
 
+void is_valid_address(void *address, struct intr_frame *f)
+{
+    if (address == NULL || is_user_vaddr(address) == false || address > PHYS_BASE)
+    {
+        f->bad_ptr = 1;
+        sys_exit(f);
+    }
+}
+
 struct fd_entry *get_fd_entry(int fd)
 {
     struct thread *t = thread_current();
@@ -71,10 +80,13 @@ extern int done;
 int sys_exit(struct intr_frame *f)
 {
     int status = *(int *)((char *)f->esp + 4);
+    if (f->bad_ptr != 0)
+    {
+        f->bad_ptr = 0;
+        status = -1;
+    }
     struct thread *current = thread_current();
-    current->status = status;
-    done = 1;
-    printf("%s: exit(%d)\n", current->name, status);
+    current->ret_status = status;
     thread_exit();
     return status;
 }
@@ -97,7 +109,14 @@ int sys_exec(struct intr_frame *f)
     save pid
     do synchronization stuff somehow lol, not today buddy
     */
-    return 0;
+    char *cmd_line = *(char **)((char *)f->esp + 4);
+
+    is_valid_address(cmd_line, f);
+    lock_acquire(&file_lock);
+    int tid = process_execute(cmd_line);
+    lock_release(&file_lock);
+
+    return tid;
 }
 
 /*
@@ -118,9 +137,9 @@ Implementing this system call requires considerably more work than any of the re
 */
 int sys_wait(struct intr_frame *f)
 {
-    // int pid = *(int *)((char *)f->esp + 4);
-    // process_wait(pid);
-    return 0;
+    int pid = *(int *)((char *)f->esp + 4);
+    int retval = process_wait(pid);
+    return retval;
 }
 
 /*
@@ -133,14 +152,12 @@ int sys_create(struct intr_frame *f)
     char *filename = *(char **)((char *)f->esp + 4);
 
     // do I need to check the the filename pointer is in valid user space?
-    if (!is_user_vaddr(filename) || filename == NULL)
-    {
-        return 0;
-    }
+    is_valid_address(filename, f);
+
     lock_acquire(&file_lock);
     unsigned initial_size = *(unsigned *)((char *)f->esp + 8);
     bool success = filesys_create(filename, initial_size);
-    // f->esp = ((char *)f->esp) + 12;
+
     lock_release(&file_lock);
     return success ? 1 : 0;
 }
@@ -291,10 +308,7 @@ int sys_write(struct intr_frame *f)
     const void *buffer = *(const void **)((char *)f->esp + 8);
     unsigned size = *(unsigned *)((char *)f->esp + 12);
 
-    if (!is_user_vaddr(buffer))
-    {
-        return -1;
-    }
+    is_valid_address(buffer, f);
 
     if (fd == 1)
     {
@@ -307,7 +321,8 @@ int sys_write(struct intr_frame *f)
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
-            return -1;
+            lock_release(&file_lock);
+            return 0;
         }
 
         int bite_size = file_write(entry->file, buffer, size);

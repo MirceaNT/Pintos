@@ -195,10 +195,6 @@ tid_t thread_create(const char *name, int priority,
         return TID_ERROR;
     }
 
-    // this is my best attempt at initializing the semaphores :)
-    sema_init(&t->semaphore1, 0);
-    sema_init(&t->semaphore2, 0);
-
     /* Initialize thread. */
     init_thread(t, name, priority);
     tid = t->tid = allocate_tid();
@@ -217,6 +213,14 @@ tid_t thread_create(const char *name, int priority,
     sf = alloc_frame(t, sizeof *sf);
     sf->eip = switch_entry;
     sf->ebp = 0;
+
+    sema_init(&t->semaphore1, 0);
+    sema_init(&t->semaphore2, 0);
+
+    t->loaded = 0;
+    t->wait = 0;
+    t->exit = 0;
+    t->parent = thread_current();
 
     /* Add to run queue. */
     thread_unblock(t);
@@ -473,6 +477,14 @@ init_thread(struct thread *t, const char *name, int priority)
     // have your file descriptor table clear
     memset(t->files, 0, sizeof(t->files));
 
+    // list_init(&t->children);
+    // t->parent = t->tid;
+    // struct child *cp = add_child(t->tid);
+    // list_push_back(&t->children, &cp->elem);
+    // t->childPTR = cp;
+
+    // help
+
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t *)t + PGSIZE;
@@ -602,3 +614,20 @@ allocate_tid(void)
 /* Offset of `stack' member within `struct thread'.
  * Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+struct thread *find_thread(int ID)
+{
+    struct thread *t = thread_current();
+    struct list_elem *e;
+    struct list_elem *next;
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = next)
+    {
+        next = list_next(e);
+        struct thread *current_thread = list_entry(e, struct thread, elem);
+        if (current_thread->tid == ID)
+        {
+            return current_thread;
+        }
+    }
+    return NULL;
+}

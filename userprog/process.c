@@ -18,6 +18,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 
 #define LOGGING_LEVEL 6
 #define MAX_ARGS 100
@@ -50,13 +51,14 @@ tid_t process_execute(const char *file_name)
         return TID_ERROR;
     }
     strlcpy(fn_copy, file_name, PGSIZE);
-
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR)
     {
         palloc_free_page(fn_copy);
     }
+    struct thread *t = find_thread(tid);
+    sema_down(&t->semaphore1);
     return tid;
 }
 
@@ -77,6 +79,15 @@ start_process(void *file_name_)
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+
+    if (success)
+    {
+        thread_current()->loaded = 1;
+    }
+    else
+    {
+        thread_current()->loaded = 2;
+    }
 
     /* If load failed, quit. */
     palloc_free_page(file_name);
@@ -107,10 +118,22 @@ start_process(void *file_name_)
 int done = 0;
 int process_wait(tid_t child_tid UNUSED)
 {
-    while (done == 0)
+    struct thread *childPTR = find_thread(child_tid);
+
+    if (childPTR == NULL || childPTR->wait == 1 || childPTR->parent != thread_current())
     {
+        return -1;
     }
-    return -1;
+    childPTR->wait = 1;
+    sema_down(&childPTR->semaphore1);
+
+    int status = childPTR->status;
+    sema_up(&childPTR->semaphore2);
+    // while (done == 0)
+    // {
+    // }
+    // return -1;
+    return status;
 }
 
 /* Free the current process's resources. */
@@ -118,7 +141,8 @@ void process_exit(void)
 {
     struct thread *cur = thread_current();
     uint32_t *pd;
-
+    printf("%s: exit(%d)\n", cur->name, cur->ret_status);
+    cur->exit = 1;
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -135,6 +159,9 @@ void process_exit(void)
         pagedir_activate(NULL);
         pagedir_destroy(pd);
     }
+    sema_up(&cur->semaphore1);
+
+    sema_down(&cur->semaphore2);
 }
 
 /* Sets up the CPU for running user code in the current

@@ -88,6 +88,7 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+
 struct thread
 {
     /* Owned by thread.c. */
@@ -112,11 +113,18 @@ struct thread
     /*This is Mircea's code to handle file descriptor table*/
     struct fd_entry *files[128];
 
-    // 2 semaphores for the wait
+    int loaded;
+    int wait;
+    int exit;
     struct semaphore semaphore1;
     struct semaphore semaphore2;
+    struct thread *parent;
+    int ret_status;
+    struct file *execute;
 };
 
+struct thread *find_thread(int);
+void remove_thread(int pid);
 /* If false (default), use round-robin scheduler.
  * If true, use multi-level feedback queue scheduler.
  * Controlled by kernel command-line option "-o mlfqs". */

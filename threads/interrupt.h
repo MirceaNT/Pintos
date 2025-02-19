@@ -5,7 +5,8 @@
 #include <stdint.h>
 
 /* Interrupts on or off? */
-enum intr_level {
+enum intr_level
+{
     INTR_OFF, /* Interrupts disabled. */
     INTR_ON   /* Interrupts enabled. */
 };
@@ -16,7 +17,8 @@ enum intr_level intr_enable(void);
 enum intr_level intr_disable(void);
 
 /* Interrupt stack frame. */
-struct intr_frame {
+struct intr_frame
+{
     /* Pushed by intr_entry in intr-stubs.S.
      * These are the interrupted task's saved registers. */
     uint32_t edi;       /* Saved EDI. */
@@ -46,14 +48,15 @@ struct intr_frame {
 
     /* Pushed by the CPU.
      * These are the interrupted task's saved registers. */
-    void     (*eip) (void); /* Next instruction to execute. */
-    uint16_t cs, : 16;      /* Code segment for eip. */
-    uint32_t eflags;        /* Saved CPU flags. */
-    void    *esp;           /* Saved stack pointer. */
-    uint16_t ss, : 16;      /* Data segment for esp. */
+    void (*eip)(void); /* Next instruction to execute. */
+    uint16_t cs, : 16; /* Code segment for eip. */
+    uint32_t eflags;   /* Saved CPU flags. */
+    void *esp;         /* Saved stack pointer. */
+    uint16_t ss, : 16; /* Data segment for esp. */
+    int bad_ptr;
 };
 
-typedef void intr_handler_func (struct intr_frame *);
+typedef void intr_handler_func(struct intr_frame *);
 
 void intr_init(void);
 void intr_register_ext(uint8_t vec, intr_handler_func *, const char *name);

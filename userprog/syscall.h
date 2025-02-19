@@ -19,4 +19,5 @@ int sys_write(struct intr_frame *);
 int sys_seek(struct intr_frame *);
 int sys_tell(struct intr_frame *);
 int sys_close(struct intr_frame *);
+
 #endif /* userprog/syscall.h */
