@@ -88,6 +88,19 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+
+struct child
+{
+    int pid;
+    int loaded;
+    int wait;
+    int exit;
+    int status;
+    struct semaphore semaphore1; // sema down in process_execute, sema up in start_process
+    struct semaphore semaphore2; // sema down in process_wait, sema up in process_exit
+    struct list_elem elem;
+};
+
 struct thread
 {
     /* Owned by thread.c. */
@@ -112,10 +125,14 @@ struct thread
     /*This is Mircea's code to handle file descriptor table*/
     struct fd_entry *files[128];
 
-    // 2 semaphores for the wait
-    struct semaphore semaphore1;
-    struct semaphore semaphore2;
+    struct child *childPTR; // used to pass on whether or not the child is loaded
+    tid_t parent;
+    struct list children;
+
+    struct file *execute; // this is what i will deny and allow writes to from load and allow write from process exit? (or just implicit on close)
 };
+
+struct child *add_child(tid_t tid);
 
 /* If false (default), use round-robin scheduler.
  * If true, use multi-level feedback queue scheduler.
@@ -149,4 +166,8 @@ void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
+// if -1, remove all children, else specific child
+void remove_child(struct child *);
+void remove_all_children();
+int active(int pid);
 #endif /* threads/thread.h */

@@ -4,7 +4,7 @@
 void syscall_init(void);
 
 // Is this where I have a lock for my file related system calls???
-
+struct lock file_lock;
 struct fd_entry *get_fd_entry(int);
 int sys_halt(struct intr_frame *);
 int sys_exit(struct intr_frame *);
@@ -19,4 +19,6 @@ int sys_write(struct intr_frame *);
 int sys_seek(struct intr_frame *);
 int sys_tell(struct intr_frame *);
 int sys_close(struct intr_frame *);
+struct child *find_process(int pid);
+
 #endif /* userprog/syscall.h */

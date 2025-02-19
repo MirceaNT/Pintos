@@ -18,6 +18,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 
 #define LOGGING_LEVEL 6
 #define MAX_ARGS 100
@@ -78,6 +79,16 @@ start_process(void *file_name_)
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
 
+    // added by me
+    if (success)
+    {
+        thread_current()->childPTR->loaded = 1;
+    }
+    else
+    {
+        thread_current()->childPTR->loaded = 2;
+    }
+    sema_up(&thread_current()->childPTR->semaphore1);
     /* If load failed, quit. */
     palloc_free_page(file_name);
     if (!success)
@@ -107,10 +118,27 @@ start_process(void *file_name_)
 int done = 0;
 int process_wait(tid_t child_tid UNUSED)
 {
-    while (done == 0)
+    struct child *childPTR = find_process(child_tid);
+    if (!childPTR)
     {
+        return -1;
     }
-    return -1;
+    if (childPTR->wait)
+    {
+        return -1;
+    }
+    childPTR->wait = 1;
+    if (!childPTR->exit)
+    {
+        sema_down(&childPTR->semaphore2);
+    }
+    int status = childPTR->status;
+    return status;
+
+    //     while (1)
+    //     {
+    //     }
+    //     return 0;
 }
 
 /* Free the current process's resources. */
@@ -118,6 +146,21 @@ void process_exit(void)
 {
     struct thread *cur = thread_current();
     uint32_t *pd;
+
+    lock_acquire(&file_lock);
+    if (cur->execute)
+    {
+        file_close(cur->execute);
+    }
+    lock_release(&file_lock);
+
+    remove_all_children();
+
+    if (active(cur->parent))
+    {
+        cur->childPTR->exit = 1;
+        sema_up(&cur->childPTR->semaphore2);
+    }
 
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
@@ -324,7 +367,7 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
     }
 
     /* Set up stack. */
-    char buffer[30] = "/bin/ls -l foo bar";
+    // char buffer[30] = "/bin/ls -l foo bar";
     if (!setup_stack(esp, file_name))
     {
         goto done;
@@ -337,7 +380,19 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
 
 done:
     /* We arrive here whether the load is successful or not. */
-    file_close(file);
+    if (success)
+    {
+        thread_current()->execute = file;
+        file_deny_write(file);
+    }
+    else
+    {
+        if (file != NULL)
+        {
+            file_close(file);
+        }
+    }
+
     return success;
 }
 

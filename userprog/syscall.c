@@ -13,8 +13,8 @@
 
 bool lock_inited = false;
 static void syscall_handler(struct intr_frame *);
-struct lock file_lock;
 
+// get file descriptor entry pointer from fd table
 struct fd_entry *get_fd_entry(int fd)
 {
     struct thread *t = thread_current();
@@ -23,6 +23,34 @@ struct fd_entry *get_fd_entry(int fd)
         return NULL;
     }
     return t->files[fd];
+}
+
+// is valid address
+void *is_valid(void *address)
+{
+    if (address < 0x08048000 || !is_user_vaddr(address))
+    {
+        return NULL;
+    }
+    return address;
+}
+
+struct child *find_process(int pid)
+{
+    struct thread *t = thread_current();
+    struct list_elem *e;
+    struct list_elem *next;
+
+    for (e = list_begin(&t->children); e != list_end(&t->children); e = next)
+    {
+        next = list_next(e);
+        struct child *childPTR = list_entry(e, struct child, elem);
+        if (pid == childPTR->pid)
+        {
+            return childPTR;
+        }
+    }
+    return NULL;
 }
 
 void syscall_init(void)
@@ -70,10 +98,27 @@ extern int done;
 
 int sys_exit(struct intr_frame *f)
 {
-    int status = *(int *)((char *)f->esp + 4);
     struct thread *current = thread_current();
-    current->status = status;
-    done = 1;
+    int status;
+    void *status_ptr = (int *)((char *)f->esp + 4);
+
+    if (!is_valid((char *)f->esp + 4))
+    {
+        status = -1;
+    }
+    else
+    {
+        status = *(int *)((char *)f->esp + 4);
+    }
+
+    if (active(current->parent) && current->childPTR)
+    {
+        if (status < 0)
+        {
+            status = -1;
+        }
+        current->childPTR->status = status;
+    }
     printf("%s: exit(%d)\n", current->name, status);
     thread_exit();
     return status;
@@ -97,7 +142,30 @@ int sys_exec(struct intr_frame *f)
     save pid
     do synchronization stuff somehow lol, not today buddy
     */
-    return 0;
+    char *args;
+    if (!is_valid(*(char **)((char *)f->esp + 4)))
+    {
+        sys_exit(f);
+    }
+    else
+    {
+        args = *(char **)((char *)f->esp + 4);
+    }
+    int pid = process_execute(args);
+    struct child *childPTR = find_process(pid);
+    if (!childPTR)
+    {
+        return -1;
+    }
+
+    sema_down(&childPTR->semaphore1);
+
+    if (childPTR->loaded == 2)
+    {
+        remove_child(childPTR);
+        return -1;
+    }
+    return pid;
 }
 
 /*
@@ -118,9 +186,8 @@ Implementing this system call requires considerably more work than any of the re
 */
 int sys_wait(struct intr_frame *f)
 {
-    // int pid = *(int *)((char *)f->esp + 4);
-    // process_wait(pid);
-    return 0;
+    int pid = *(int *)((char *)f->esp + 4);
+    return process_wait(pid);
 }
 
 /*
@@ -130,19 +197,25 @@ opening the new file is a separate operation which would require a open system c
 */
 int sys_create(struct intr_frame *f)
 {
-    char *filename = *(char **)((char *)f->esp + 4);
-
-    // do I need to check the the filename pointer is in valid user space?
-    if (!is_user_vaddr(filename) || filename == NULL)
-    {
-        return 0;
-    }
-    lock_acquire(&file_lock);
     unsigned initial_size = *(unsigned *)((char *)f->esp + 8);
+    // do I need to check the the filename pointer is in valid user space?
+
+    char *filename;
+    if (!is_valid(*(char **)((char *)f->esp + 4)))
+    {
+        sys_exit(f);
+    }
+    else
+    {
+        filename = *(char **)((char *)f->esp + 4);
+    }
+
+    lock_acquire(&file_lock);
+
     bool success = filesys_create(filename, initial_size);
     // f->esp = ((char *)f->esp) + 12;
     lock_release(&file_lock);
-    return success ? 1 : 0;
+    return success;
 }
 /*
 Deletes the file called file. Returns true if successful, false otherwise.
@@ -153,10 +226,10 @@ int sys_remove(struct intr_frame *f)
 {
     char *filename = *(char **)((char *)f->esp + 4);
     lock_acquire(&file_lock);
-    if (!is_user_vaddr(filename) || filename == NULL)
+    if (!is_valid(filename))
     {
         lock_release(&file_lock);
-        return -1;
+        return 0;
     }
     bool success = filesys_remove(filename);
     // f->esp = ((char *)(f->esp)) + 4;
@@ -175,7 +248,7 @@ int sys_open(struct intr_frame *f)
 {
     char *filename = *(char **)(((char *)f->esp) + 4);
 
-    if (!is_user_vaddr(filename) || filename == NULL)
+    if (!is_valid(filename))
     {
         return -1;
     }
@@ -244,7 +317,7 @@ int sys_read(struct intr_frame *f)
     void *buffer = *(void **)((char *)f->esp + 8);
     unsigned size = *(unsigned *)((char *)f->esp + 12);
 
-    if (!is_user_vaddr(buffer))
+    if (!is_valid(buffer))
     {
         return -1;
     }
@@ -291,9 +364,9 @@ int sys_write(struct intr_frame *f)
     const void *buffer = *(const void **)((char *)f->esp + 8);
     unsigned size = *(unsigned *)((char *)f->esp + 12);
 
-    if (!is_user_vaddr(buffer))
+    if (!is_valid(buffer))
     {
-        return -1;
+        sys_exit(f);
     }
 
     if (fd == 1)
@@ -307,7 +380,8 @@ int sys_write(struct intr_frame *f)
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
-            return -1;
+            lock_release(&file_lock);
+            return 0;
         }
 
         int bite_size = file_write(entry->file, buffer, size);
@@ -336,7 +410,7 @@ int sys_seek(struct intr_frame *f)
     if (entry == NULL || entry->file == NULL)
     {
         lock_release(&file_lock);
-        return -1;
+        return 0;
     }
     file_seek(entry->file, position);
     lock_release(&file_lock);
@@ -359,7 +433,7 @@ int sys_tell(struct intr_frame *f)
     }
     int offset = file_tell(entry->file);
     lock_release(&file_lock);
-    return offset;
+    return (unsigned)offset;
 }
 
 /*

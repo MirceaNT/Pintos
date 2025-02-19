@@ -195,9 +195,10 @@ tid_t thread_create(const char *name, int priority,
         return TID_ERROR;
     }
 
-    // this is my best attempt at initializing the semaphores :)
-    sema_init(&t->semaphore1, 0);
-    sema_init(&t->semaphore2, 0);
+    // added by Mircea
+    t->parent = thread_current()->tid;
+    struct child *cp = add_child(t->tid);
+    t->childPTR = cp;
 
     /* Initialize thread. */
     init_thread(t, name, priority);
@@ -479,6 +480,8 @@ init_thread(struct thread *t, const char *name, int priority)
     t->priority = priority;
     t->magic = THREAD_MAGIC;
 
+    list_init(&t->children);
+
     old_level = intr_disable();
     list_push_back(&all_list, &t->allelem);
     intr_set_level(old_level);
@@ -602,3 +605,52 @@ allocate_tid(void)
 /* Offset of `stack' member within `struct thread'.
  * Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+int active(int pid)
+{
+    struct list_elem *begin = list_begin(&all_list);
+    struct list_elem *next;
+    for (begin; begin != list_end(&all_list); begin = next)
+    {
+        next = list_next(begin);
+        struct thread *current = list_entry(begin, struct thread, allelem);
+        if (current->tid == pid)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+struct child *add_child(tid_t tid)
+{
+    struct child *childPTR = malloc(sizeof(struct child));
+    childPTR->pid = tid;
+    childPTR->loaded = 0;
+    childPTR->wait = 0;
+    childPTR->exit = 0;
+    sema_init(&childPTR->semaphore1, 0);
+    sema_init(&childPTR->semaphore2, 0);
+    list_push_back(&thread_current()->children, &childPTR->elem);
+    return childPTR;
+}
+
+void remove_all_children()
+{
+    struct list_elem *begin = list_begin(&thread_current()->children);
+    struct list_elem *next;
+
+    for (begin; begin != list_end(&thread_current()->children); begin = next)
+    {
+        next = list_next(begin);
+        struct child *process = list_entry(begin, struct child, elem);
+        list_remove(&process->elem);
+        free(process);
+    }
+}
+
+void remove_child(struct child *childPTR)
+{
+    list_remove(childPTR);
+    free(childPTR);
+}
