@@ -131,6 +131,7 @@ void process_exit(void)
     sema_up(&cur->semaphore1);
 
     sema_down(&cur->semaphore2);
+    file_close(cur->execute);
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -254,20 +255,35 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
     }
     process_activate();
 
+    char *name = malloc(sizeof(char) * strlen(file_name) + 2);
+    strlcpy(name, file_name, strlen(file_name) + 2);
+    char *token, *save_ptr;
+    token = strtok_r(name, " ", &save_ptr);
+    strlcpy(t->name, token, strlen(token) + 1);
     /* Open executable file. */
-    file = filesys_open(file_name);
+    lock_acquire(&file_lock);
+    file = filesys_open(token);
+    lock_release(&file_lock);
     if (file == NULL)
     {
         printf("load: %s: open failed\n", file_name);
         goto done;
     }
 
+    lock_acquire(&file_lock);
+    file_deny_write(file);
+    t->execute = file;
+    lock_release(&file_lock);
+
     /* Read and verify executable header. */
+    lock_acquire(&file_lock);
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr || memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 || ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Elf32_Phdr) || ehdr.e_phnum > 1024)
     {
         printf("load: %s: error loading executable\n", file_name);
+        lock_release(&file_lock);
         goto done;
     }
+    lock_release(&file_lock);
 
     /* Read program headers. */
     file_ofs = ehdr.e_phoff;
@@ -279,12 +295,18 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
         {
             goto done;
         }
+        lock_acquire(&file_lock);
         file_seek(file, file_ofs);
+        lock_release(&file_lock);
 
+        lock_acquire(&file_lock);
         if (file_read(file, &phdr, sizeof phdr) != sizeof phdr)
         {
+            lock_release(&file_lock);
             goto done;
         }
+        lock_release(&file_lock);
+
         file_ofs += sizeof phdr;
         switch (phdr.p_type)
         {
@@ -348,6 +370,7 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
 
 done:
     /* We arrive here whether the load is successful or not. */
+
     if (success)
     {
         thread_current()->loaded = 1;
@@ -355,9 +378,11 @@ done:
     else
     {
         thread_current()->loaded = 0;
+        file_close(file);
     }
-    sema_up(&thread_current()->load);
-    file_close(file);
+
+    sema_up(&thread_current()->parent->load);
+
     return success;
 }
 

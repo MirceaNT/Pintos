@@ -11,6 +11,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "pagedir.h"
+#include "process.h"
 
 static void syscall_handler(struct intr_frame *);
 bool Lock_initiated = false;
@@ -18,6 +19,21 @@ bool Lock_initiated = false;
 void syscall_init(void)
 {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+    if (!Lock_initiated)
+    {
+        lock_init(&file_lock);
+        Lock_initiated = true;
+    }
+}
+
+struct fd_entry *get_fd_entry(int fd)
+{
+    struct thread *t = thread_current();
+    if (fd < 0 || fd >= 128)
+    {
+        return NULL;
+    }
+    return t->files[fd];
 }
 
 bool is_valid_pointer(void *address)
@@ -33,11 +49,6 @@ bool is_valid_pointer(void *address)
 static void
 syscall_handler(struct intr_frame *f UNUSED)
 {
-    if (!Lock_initiated)
-    {
-        lock_init(&file_lock);
-        Lock_initiated = true;
-    }
 
     int fd;
     const char *file;
@@ -78,7 +89,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         cmd_line = *(char **)((char *)f->esp + 4);
-        sys_exec(cmd_line);
+        f->eax = sys_exec(cmd_line);
         break;
     case SYS_WAIT:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -87,7 +98,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         pid = *(int *)((char *)f->esp + 4);
-        sys_wait(pid);
+        f->eax = sys_wait(pid);
         break;
     case SYS_CREATE:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -102,7 +113,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         initial_size = *(unsigned *)((char *)f->esp + 8);
-        sys_create(file, initial_size);
+        f->eax = sys_create(file, initial_size);
         break;
     case SYS_REMOVE:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -111,7 +122,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         file = *(char **)((char *)f->esp + 4);
-        sys_remove(file);
+        f->eax = sys_remove(file);
         break;
     case SYS_OPEN:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -120,7 +131,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         file = *(char **)((char *)f->esp + 4);
-        sys_open(file);
+        f->eax = sys_open(file);
         break;
     case SYS_FILESIZE:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -129,7 +140,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         fd = *(int *)((char *)f->esp + 4);
-        sys_filesize(fd);
+        f->eax = sys_filesize(fd);
         break;
     case SYS_READ:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -150,7 +161,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         size = *(unsigned *)((char *)f->esp + 12);
-        sys_read(fd, buffer, size);
+        f->eax = sys_read(fd, buffer, size);
         break;
     case SYS_WRITE:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -171,7 +182,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         size = *(unsigned *)((char *)f->esp + 12);
-        sys_write(fd, buffer, size);
+        f->eax = sys_write(fd, buffer, size);
         break;
     case SYS_SEEK:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -195,7 +206,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         fd = *(int *)((char *)f->esp + 4);
-        sys_tell(fd);
+        f->eax = sys_tell(fd);
         break;
     case SYS_CLOSE:
         if (!is_valid_pointer((char *)f->esp + 4))
@@ -237,27 +248,112 @@ static int sys_wait(int pid)
 
 static bool sys_create(const char *file, unsigned initial_size)
 {
-    return 0;
+    if (!is_valid_pointer(file))
+    {
+        return 0;
+    }
+    lock_acquire(&file_lock);
+    bool success = filesys_create(file, initial_size);
+    lock_release(&file_lock);
+    return success;
 }
 
 static bool sys_remove(const char *file)
 {
-    return 0;
+    if (!is_valid_pointer(file))
+    {
+        return 0;
+    }
+    lock_acquire(&file_lock);
+    bool success = filesys_remove(file);
+    lock_release(&file_lock);
+    return success;
 }
 
 static int sys_open(const char *file)
 {
-    return 0;
+    if (!is_valid_pointer(file))
+    {
+        return -1;
+    }
+    lock_acquire(&file_lock);
+    struct file *curFile = filesys_open(file);
+    if (curFile == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+
+    struct thread *t = thread_current();
+    int fd;
+    for (fd = 2; fd < 128; fd++)
+    {
+        if (t->files[fd] == NULL)
+        {
+            /* Allocate fd_entry struct, fill it in. */
+            struct fd_entry *entry = malloc(sizeof entry);
+            if (entry == NULL)
+            {
+                file_close(curFile);
+                lock_release(&file_lock);
+                return -1;
+            }
+            entry->fd = fd;
+            entry->file = curFile;
+            t->files[fd] = entry;
+            lock_release(&file_lock);
+            return fd;
+        }
+    }
+
+    file_close(curFile);
+    lock_release(&file_lock);
+    return -1;
 }
 
 static int sys_filesize(int fd)
 {
-    return 0;
+    lock_acquire(&file_lock);
+    struct fd_entry *curFD = get_fd_entry(fd);
+    if (curFD == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    int filesize = file_length(curFD->file);
+    lock_release(&file_lock);
+    return filesize;
 }
 
 static int sys_read(int fd, void *buffer, unsigned size)
 {
-    return 0;
+    if (!is_valid_pointer(buffer))
+    {
+        return -1;
+    }
+    if (fd == 0)
+    {
+        unsigned i;
+        char *buf = (char *)buffer;
+        for (i = 0; i < size; i++)
+        {
+            buf[i] = input_getc();
+        }
+        return size;
+    }
+    else
+    {
+        lock_acquire(&file_lock);
+        struct fd_entry *entry = get_fd_entry(fd);
+        if (entry == NULL || entry->file == NULL)
+        {
+            lock_release(&file_lock);
+            return -1;
+        }
+        int bytes_read = file_read(entry->file, buffer, size);
+        lock_release(&file_lock);
+        return bytes_read;
+    }
 }
 
 static int sys_write(int fd, const void *buffer, unsigned size)
@@ -268,20 +364,65 @@ static int sys_write(int fd, const void *buffer, unsigned size)
         putbuf(buffer, size);
         return size;
     }
-    return 0;
+    else
+    {
+        lock_acquire(&file_lock);
+        struct fd_entry *entry = get_fd_entry(fd);
+        if (entry == NULL || entry->file == NULL)
+        {
+            lock_release(&file_lock);
+            return 0;
+        }
+
+        int bite_size = file_write(entry->file, buffer, size);
+        lock_release(&file_lock);
+        return bite_size;
+    }
 }
 
 static void sys_seek(int fd, unsigned position)
 {
+    lock_acquire(&file_lock);
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL || entry->file == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    file_seek(entry->file, position);
+    lock_release(&file_lock);
     return;
 }
 
 static unsigned sys_tell(int fd)
 {
-    return 0;
+    lock_acquire(&file_lock);
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL || entry->file == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+    int offset = file_tell(entry->file);
+    lock_release(&file_lock);
+    return offset;
 }
 
 static void sys_close(int fd)
 {
-    return;
+    lock_acquire(&file_lock);
+
+    struct fd_entry *entry = get_fd_entry(fd);
+    if (entry == NULL)
+    {
+        lock_release(&file_lock);
+        return -1;
+    }
+
+    file_close(entry->file);
+
+    free(entry);
+    thread_current()->files[fd] = NULL;
+    lock_release(&file_lock);
+    return 0;
 }
