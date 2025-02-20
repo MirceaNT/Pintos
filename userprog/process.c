@@ -502,8 +502,9 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         lock_acquire(&file_lock);
         if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
         {
-            lock_release(&file_lock);
+
             palloc_free_page(kpage);
+            lock_release(&file_lock);
             return false;
         }
         lock_release(&file_lock);
