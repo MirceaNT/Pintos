@@ -213,6 +213,7 @@ tid_t thread_create(const char *name, int priority,
     sf = alloc_frame(t, sizeof *sf);
     sf->eip = switch_entry;
     sf->ebp = 0;
+    t->parent = thread_current();
 
     /* Add to run queue. */
     thread_unblock(t);
@@ -465,6 +466,12 @@ init_thread(struct thread *t, const char *name, int priority)
     ASSERT(name != NULL);
 
     memset(t, 0, sizeof *t);
+    // have your file descriptor table clear
+    memset(t->files, 0, sizeof(t->files));
+    sema_init(&t->load, 0);
+    sema_init(&t->semaphore1, 0);
+    sema_init(&t->semaphore2, 0);
+
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t *)t + PGSIZE;
@@ -597,13 +604,12 @@ uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
 struct thread *find_thread(int ID)
 {
-    struct thread *t = thread_current();
     struct list_elem *e;
     struct list_elem *next;
     for (e = list_begin(&all_list); e != list_end(&all_list); e = next)
     {
         next = list_next(e);
-        struct thread *current_thread = list_entry(e, struct thread, elem);
+        struct thread *current_thread = list_entry(e, struct thread, allelem);
         if (current_thread->tid == ID)
         {
             return current_thread;
