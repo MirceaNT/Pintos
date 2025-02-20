@@ -131,7 +131,9 @@ void process_exit(void)
     sema_up(&cur->semaphore1);
 
     sema_down(&cur->semaphore2);
+    lock_acquire(&file_lock);
     file_close(cur->execute);
+    lock_release(&file_lock);
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -261,6 +263,7 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
     token = strtok_r(name, " ", &save_ptr);
     strlcpy(t->name, token, strlen(token) + 1);
     /* Open executable file. */
+
     lock_acquire(&file_lock);
     file = filesys_open(token);
     lock_release(&file_lock);
@@ -378,7 +381,9 @@ done:
     else
     {
         thread_current()->loaded = 0;
+        lock_acquire(&file_lock);
         file_close(file);
+        lock_release(&file_lock);
     }
 
     sema_up(&thread_current()->parent->load);
@@ -474,8 +479,10 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
     ASSERT(ofs % PGSIZE == 0);
 
     log(L_TRACE, "load_segment()");
-
+    lock_acquire(&file_lock);
     file_seek(file, ofs);
+    lock_release(&file_lock);
+
     while (read_bytes > 0 || zero_bytes > 0)
     {
         /* Calculate how to fill this page.
@@ -492,11 +499,14 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         }
 
         /* Load this page. */
+        lock_acquire(&file_lock);
         if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
         {
+            lock_release(&file_lock);
             palloc_free_page(kpage);
             return false;
         }
+        lock_release(&file_lock);
         memset(kpage + page_read_bytes, 0, page_zero_bytes);
 
         /* Add the page to the process's address space. */
