@@ -18,6 +18,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 
 #define LOGGING_LEVEL 6
 #define MAX_ARGS 100
@@ -57,7 +58,9 @@ tid_t process_execute(const char *file_name)
     {
         palloc_free_page(fn_copy);
     }
-    return tid;
+    sema_down(&thread_current()->load);
+
+    return (thread_current()->loaded == 1) ? tid : -1;
 }
 
 /* A thread function that loads a user process and starts it
@@ -106,7 +109,16 @@ start_process(void *file_name_)
  * does nothing. */
 int process_wait(tid_t child_tid UNUSED)
 {
-    return -1;
+    struct thread *childPTR = find_thread(child_tid);
+    if (childPTR == NULL || childPTR->wait == 1 || childPTR->parent != thread_current())
+    {
+        return -1;
+    }
+    childPTR->wait = 1;
+    sema_down(&childPTR->semaphore1);
+    int status = childPTR->exit_status;
+    sema_up(&childPTR->semaphore2);
+    return status;
 }
 
 /* Free the current process's resources. */
@@ -115,6 +127,10 @@ void process_exit(void)
     struct thread *cur = thread_current();
     uint32_t *pd;
 
+    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+    sema_up(&cur->semaphore1);
+
+    sema_down(&cur->semaphore2);
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -332,6 +348,15 @@ bool load(const char *file_name, void (**eip)(void), void **esp)
 
 done:
     /* We arrive here whether the load is successful or not. */
+    if (success)
+    {
+        thread_current()->loaded = 1;
+    }
+    else
+    {
+        thread_current()->loaded = 0;
+    }
+    sema_up(&thread_current()->load);
     file_close(file);
     return success;
 }

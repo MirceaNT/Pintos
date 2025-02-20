@@ -4,7 +4,7 @@
 void syscall_init(void);
 
 struct lock file_lock;
-bool Lock_initiated = false;
+
 static void sys_halt(void);
 static void sys_exit(int status);
 static int sys_exec(const char *file);
