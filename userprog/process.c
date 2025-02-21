@@ -109,6 +109,7 @@ start_process(void *file_name_)
  * does nothing. */
 int process_wait(tid_t child_tid UNUSED)
 {
+    // printf("Process_wait\n");
     struct thread *childPTR = find_thread(child_tid);
     if (childPTR == NULL || childPTR->wait == 1 || childPTR->parent != thread_current())
     {
@@ -124,16 +125,17 @@ int process_wait(tid_t child_tid UNUSED)
 /* Free the current process's resources. */
 void process_exit(void)
 {
+    // printf("Process_exit\n");
     struct thread *cur = thread_current();
     uint32_t *pd;
 
     printf("%s: exit(%d)\n", cur->name, cur->exit_status);
     sema_up(&cur->semaphore1);
-
-    sema_down(&cur->semaphore2);
     lock_acquire(&file_lock);
     file_close(cur->execute);
     lock_release(&file_lock);
+    sema_down(&cur->semaphore2);
+
     /* Destroy the current process's page directory and switch back
      * to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -376,11 +378,11 @@ done:
 
     if (success)
     {
-        thread_current()->loaded = 1;
+        thread_current()->parent->loaded = 1;
     }
     else
     {
-        thread_current()->loaded = 0;
+        thread_current()->parent->loaded = 0;
         lock_acquire(&file_lock);
         file_close(file);
         lock_release(&file_lock);

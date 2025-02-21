@@ -214,7 +214,7 @@ tid_t thread_create(const char *name, int priority,
     sf->eip = switch_entry;
     sf->ebp = 0;
     t->parent = thread_current();
-
+    t->loaded = 1;
     /* Add to run queue. */
     thread_unblock(t);
 
@@ -606,12 +606,15 @@ struct thread *find_thread(int ID)
 {
     struct list_elem *e;
     struct list_elem *next;
+    // printf("Searching for: %d\n", ID);
     for (e = list_begin(&all_list); e != list_end(&all_list); e = next)
     {
         next = list_next(e);
         struct thread *current_thread = list_entry(e, struct thread, allelem);
+        // printf("Current thread ID is %d\n", current_thread->tid);
         if (current_thread->tid == ID)
         {
+
             return current_thread;
         }
     }

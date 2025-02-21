@@ -46,8 +46,7 @@ bool is_valid_pointer(void *address)
     return true;
 }
 
-static void
-syscall_handler(struct intr_frame *f UNUSED)
+void syscall_handler(struct intr_frame *f UNUSED)
 {
 
     int fd;
@@ -98,6 +97,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
         }
         pid = *(int *)((char *)f->esp + 4);
+        // printf("In syscall tid on stack is: %d\n");
         f->eax = sys_wait(pid);
         break;
     case SYS_CREATE:
@@ -217,40 +217,44 @@ syscall_handler(struct intr_frame *f UNUSED)
         fd = *(int *)((char *)f->esp + 4);
         sys_close(fd);
         break;
+    default:
+        sys_exit(-1);
+        break;
     }
 }
 
-static void sys_halt()
+void sys_halt()
 {
     shutdown_power_off();
 }
 
-static void sys_exit(int status)
+void sys_exit(int status)
 {
     thread_current()->exit_status = status;
     thread_exit();
     return;
 }
 
-static int sys_exec(const char *file)
+int sys_exec(const char *file)
 {
     if (!is_valid_pointer(file))
     {
         return -1;
     }
+
     return process_execute(file);
 }
 
-static int sys_wait(int pid)
+int sys_wait(int pid)
 {
     return process_wait(pid);
 }
 
-static bool sys_create(const char *file, unsigned initial_size)
+bool sys_create(const char *file, unsigned initial_size)
 {
     if (!is_valid_pointer(file))
     {
-        return 0;
+        sys_exit(-1);
     }
     lock_acquire(&file_lock);
     bool success = filesys_create(file, initial_size);
@@ -258,7 +262,7 @@ static bool sys_create(const char *file, unsigned initial_size)
     return success;
 }
 
-static bool sys_remove(const char *file)
+bool sys_remove(const char *file)
 {
     if (!is_valid_pointer(file))
     {
@@ -270,11 +274,11 @@ static bool sys_remove(const char *file)
     return success;
 }
 
-static int sys_open(const char *file)
+int sys_open(const char *file)
 {
     if (!is_valid_pointer(file))
     {
-        return -1;
+        sys_exit(-1);
     }
     lock_acquire(&file_lock);
     struct file *curFile = filesys_open(file);
@@ -311,7 +315,7 @@ static int sys_open(const char *file)
     return -1;
 }
 
-static int sys_filesize(int fd)
+int sys_filesize(int fd)
 {
     lock_acquire(&file_lock);
     struct fd_entry *curFD = get_fd_entry(fd);
@@ -325,7 +329,7 @@ static int sys_filesize(int fd)
     return filesize;
 }
 
-static int sys_read(int fd, void *buffer, unsigned size)
+int sys_read(int fd, void *buffer, unsigned size)
 {
     if (!is_valid_pointer(buffer))
     {
@@ -356,7 +360,7 @@ static int sys_read(int fd, void *buffer, unsigned size)
     }
 }
 
-static int sys_write(int fd, const void *buffer, unsigned size)
+int sys_write(int fd, const void *buffer, unsigned size)
 {
 
     if (fd == 1)
@@ -380,7 +384,7 @@ static int sys_write(int fd, const void *buffer, unsigned size)
     }
 }
 
-static void sys_seek(int fd, unsigned position)
+void sys_seek(int fd, unsigned position)
 {
     lock_acquire(&file_lock);
     struct fd_entry *entry = get_fd_entry(fd);
@@ -394,7 +398,7 @@ static void sys_seek(int fd, unsigned position)
     return;
 }
 
-static unsigned sys_tell(int fd)
+unsigned sys_tell(int fd)
 {
     lock_acquire(&file_lock);
     struct fd_entry *entry = get_fd_entry(fd);
@@ -408,7 +412,7 @@ static unsigned sys_tell(int fd)
     return offset;
 }
 
-static void sys_close(int fd)
+void sys_close(int fd)
 {
     lock_acquire(&file_lock);
 
