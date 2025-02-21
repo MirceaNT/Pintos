@@ -389,6 +389,10 @@ done:
     }
 
     sema_up(&thread_current()->parent->load);
+    if (!success)
+    {
+        sys_exit(-1);
+    }
 
     return success;
 }

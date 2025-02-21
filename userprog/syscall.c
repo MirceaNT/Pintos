@@ -333,7 +333,7 @@ int sys_read(int fd, void *buffer, unsigned size)
 {
     if (!is_valid_pointer(buffer))
     {
-        return -1;
+        sys_exit(-1);
     }
     if (fd == 0)
     {
@@ -372,10 +372,10 @@ int sys_write(int fd, const void *buffer, unsigned size)
     {
         lock_acquire(&file_lock);
         struct fd_entry *entry = get_fd_entry(fd);
-        if (entry == NULL || entry->file == NULL)
+        if (entry == NULL || entry->file == NULL || !is_valid_pointer(buffer))
         {
             lock_release(&file_lock);
-            return 0;
+            sys_exit(-1);
         }
 
         int bite_size = file_write(entry->file, buffer, size);
