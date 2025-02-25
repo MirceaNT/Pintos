@@ -8,7 +8,7 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@utexas.edu>
+Mircea Tatulescu <mirceatatulescu@utexas.edu>
 FirstName LastName <email@utexas.edu>
 
 ---- PRELIMINARIES ----
@@ -18,6 +18,7 @@ FirstName LastName <email@utexas.edu>
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
+I hope it works :) none
 
                            ARGUMENT PASSING
                            ================
@@ -28,15 +29,36 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+#define MAX_ARGS 100 -- have a set max arguements static array that can be changed from this
+
+char *arg_addresses[MAX_ARGS]; -- this is where I keep the tokenized arguements that I will push on the stack.
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+I made a static array of arguments in the proper order, and when
+it comes to pushing them on the stack I have a loop that starts from
+the end of my arguements then I have this expression (esp_int % 4 != 0)
+to ensure that I align my stack properly. This is the comments in my code that
+explain the order in which I push stuff
+// copy over the tokenized filename (in reverse order)
+// align the stack
+// add a null value on the stack
+// push the argument pointers (in reverse order)
+// push the argv pointer on the stack
+// push argc on the stack
+// have return address set to 0
+
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+Strtok_r has a save pointer which is very useful in case another thread gets scheduled while the parsing happens. This allows the 
+parsing to resume where it left off whereas strtok would be lost.
+
 
                              SYSTEM CALLS
                              ============
@@ -47,14 +69,69 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+struct fd_entry
+{
+    int fd;
+    struct file *file;
+};
+Purpose: This is how I will keep track of my files in the thread struct, so that each thread has it's own file
+descriptor table.
+
+
+
+struct thread
+{
+    /* Owned by thread.c. */
+    tid_t tid;                 /* Thread identifier. */
+    enum thread_status status; /* Thread state. */
+    char name[16];             /* Name (for debugging purposes). */
+    uint8_t *stack;            /* Saved stack pointer. */
+    int priority;              /* Priority. */
+    struct list_elem allelem;  /* List element for all threads list. */
+
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem; /* List element. */
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir; /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic; /* Detects stack overflow. */
+
+    // added by Mircea
+    struct fd_entry *files[128];  -- Purpose: maintain track of all files
+    char first_word[128]; -- Keep track of the first_word of the testcase ex: args-single hello, args-single would be stored
+    int loaded; -- I use this to make sure that I successfully loaded my program and use this as a flag between child and parent
+    int wait; -- I use this to make sure that if I wait on a process on which wait was already called to return -1.
+    // int exit; 
+    int exit_status; -- this is used to keep the exit number of a process from sys_exit.
+    struct semaphore semaphore1; -- this is 1 of the two semaphores that is used in synchronization. Both are called in the child.
+    struct semaphore semaphore2; -- this is the other 1 of the two semaphores that is used in synchronization. Both are called in the child.
+    struct semaphore load; -- this semaphore is used to wait on the child to load. This semaphore is used in the parent.
+    struct thread *parent; -- I use this pointer to ensure that a parent only waits on their child.
+    struct file *execute; -- This is used for me to know what the executable file name is so that I can allow writes when a thread exits.
+};
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+File descriptors are unique per process. In our case each process has a thread, so I can keep the file descriptor table in my thread struct.
+File descriptors in my code are an index in an array that point to a file. Rather than passing around file pointers, it's easier
+for programmers to pass around a number associated with a file.
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+I have system calls! :)
+
+
+
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -63,8 +140,21 @@ FirstName LastName <email@utexas.edu>
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+
+If contiguous min 1, max 2: could start at beginning of page or not beginning of page
+not contiguous (each byte is elsewhere) min == max == 4096.
+I assume that the buffer is contiguous and in one page boundary.
+
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+I find the child thread since I am in the parent.
+I ensure that it exists, I haven't called wait on it before, and that it is actually the child
+I then sema_down to let the process finish. Once it's done but not dead, I reap
+its exit status, then let it die and return the exit_status.
+
+
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -80,12 +170,19 @@ FirstName LastName <email@utexas.edu>
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+
+I have a lock that gets acquired before accessing the file system and if there is an error, I will release the lock before retrieving.
+I have a function that ensures that my pointer is in user space and valid. If anything bad happens, I will exit. I malloc and never free :(
+I don't ensure that the entire buffer is valid. I just hope that it will all be contiguous and on the same page.
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
 >> fails, so it cannot return before the new executable has completed
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
+
+I have a semaphore that waits for the process to load before continuing :)
+
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
@@ -94,16 +191,25 @@ FirstName LastName <email@utexas.edu>
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+I have a double handshake to avoid problems where one process might finish before the other.
+special case, the parent quits without waiting on the child process. I don't handle this yet, but I can pass. 
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
+I have a function that verifies pointers, and I assume that it all happens on the same page.
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
+Advantages: easy for me to access
+disadvantages: I need a decent amount of continuous space.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+I don't think I changed this. I treated pid and tid_t the same.
 
                            SURVEY QUESTIONS
                            ================
@@ -123,6 +229,10 @@ the semester.
 >> Is there some particular fact or hint we should give students in
 >> future semesters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
+
+I think that the guidance of doing symchronization last wasn't helpful. What I did was implement the filesysytem stuff
+then tried doing the synchronization. What happened was that I had so much code that by the time I got to synching. I couldn't
+go through what I had
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future semesters or the remaining projects?
