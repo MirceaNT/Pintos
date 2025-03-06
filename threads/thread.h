@@ -114,7 +114,7 @@ struct thread
     char first_word[128];
     int loaded;
     int wait;
-    int exit;
+    // int exit;
     int exit_status;
     struct semaphore semaphore1;
     struct semaphore semaphore2;
