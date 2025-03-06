@@ -198,7 +198,9 @@ special case, the parent quits without waiting on the child process. I don't han
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
+
 I have a function that verifies pointers, and I assume that it all happens on the same page.
+
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
