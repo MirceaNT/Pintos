@@ -1,20 +1,4 @@
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include "filesys/file.h"
-#include "lib/kernel/hash.h"
-#include "debug.h"
-
-struct supp_page_entry
-{
-    struct file *file;
-    off_t ofs;
-    uint8_t *upage;
-    uint32_t read_bytes;
-    uint32_t zero_bytes;
-    bool writable;
-    struct hash_elem hash_elem;
-};
+#include "vm/suppTable.h"
 
 unsigned supp_hash_func(const struct hash_elem *e, void *aux UNUSED)
 {
@@ -26,6 +10,16 @@ bool supp_page_table_insert(struct hash *spt, struct supp_page_entry *spe)
 {
     struct hash_elem *existing = hash_insert(spt, &spe->hash_elem);
     return (existing == NULL);
+}
+bool supp_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+    const struct supp_page_entry *spe_a = hash_entry(a, struct supp_page_entry, hash_elem);
+    const struct supp_page_entry *spe_b = hash_entry(b, struct supp_page_entry, hash_elem);
+    return spe_a->upage < spe_b->upage;
+}
+void supp_page_table_init(struct hash *spt)
+{
+    hash_init(spt, supp_hash_func, supp_less_func, NULL);
 }
 
 struct supp_page_entry *supp_page_table_find(struct hash *spt, const void *upage)
