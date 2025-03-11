@@ -6,11 +6,34 @@
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
 
+#include "threads/interrupt.h"
+#include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "threads/malloc.h"
+#include "threads/palloc.h"
+#include "userprog/pagedir.h"
+#include "userprog/syscall.h"
+#include "vm/frame.h"
+#include "vm/page.h"
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
 static void kill(struct intr_frame *);
 static void page_fault(struct intr_frame *);
+
+static bool is_valid_address(void *address)
+{
+    if (address == NULL)
+    {
+        return false;
+    }
+    if (is_kernel_vaddr(address))
+    {
+        return false;
+    }
+    return true;
+}
 
 /* Registers handlers for interrupts that can be caused by user
  * programs.
@@ -123,6 +146,8 @@ page_fault(struct intr_frame *f)
     bool user;        /* True: access by user, false: access by kernel. */
     void *fault_addr; /* Fault address. */
 
+    struct thread *current = thread_current();
+
     /* Obtain faulting address, the virtual address that was
      * accessed to cause the fault.  It may point to code or to
      * data.  It is not necessarily the address of the instruction
@@ -138,6 +163,87 @@ page_fault(struct intr_frame *f)
 
     /* Count page faults. */
     page_fault_cnt++;
+
+    if (!is_valid_address(fault_addr))
+    {
+        thread_exit();
+    }
+
+    struct page *cur_page = page_lookup(fault_addr);
+
+    if (cur_page == NULL)
+    {
+        // check potential stack page
+        //  assuming that if within 32 bytes of the sp, then a push instruction happened
+        //  TODO: any other potential checks??
+        if (fault_addr < (f->esp - 32))
+        {
+            thread_exit();
+        }
+
+        // make stack bigger here
+        char *current_sp = PHYS_BASE - (current->stack_pages * 4096);
+        char *new_page_address = (char *)(pg_no(fault_addr) << 12);
+        for (new_page_address; new_page_address < current_sp; new_page_address += 4096)
+        {
+            struct page *new_stack_pointer = (struct page *)malloc(sizeof(struct page));
+            new_stack_pointer->is_stack_page = true;
+            new_stack_pointer->address = new_page_address;
+            new_stack_pointer->status = IN_MEM;
+            new_stack_pointer->write_enable = true;
+            new_stack_pointer->file_name = NULL;
+            new_stack_pointer->offset = 0;
+            new_stack_pointer->read_bytes = 0;
+            new_stack_pointer->zero_bytes = 4096;
+            new_stack_pointer->pagedir = current->pagedir;
+            lock_init(&new_stack_pointer->DO_NOT_TOUCH);
+            if (current->stack_pages > 2048)
+            {
+                thread_exit();
+            }
+
+            // get frame here
+            // install page
+            // only for stack :(
+        }
+    }
+
+    if (cur_page->status == DISK)
+    {
+    }
+    if (cur_page->status == IN_SWAP)
+    {
+    }
+
+    // moved from load segment
+    // why so many red squiggly lines
+    /* Get a page of memory. */
+    uint8_t *kpage = palloc_get_page(PAL_USER);
+    if (kpage == NULL)
+    {
+        return false;
+    }
+
+    /* Load this page. */
+    lock_acquire(&file_lock);
+    if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
+    {
+
+        palloc_free_page(kpage);
+        lock_release(&file_lock);
+        return false;
+    }
+    lock_release(&file_lock);
+    memset(kpage + page_read_bytes, 0, page_zero_bytes);
+
+    /* Add the page to the process's address space. */
+    if (!install_page(upage, kpage, writable))
+    {
+        palloc_free_page(kpage);
+        return false;
+    }
+
+    // until here
 
     /* Determine cause. */
     not_present = (f->error_code & PF_P) == 0;

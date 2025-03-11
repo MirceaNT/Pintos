@@ -20,6 +20,9 @@
 #include "userprog/tss.h"
 #include "userprog/syscall.h"
 
+#include "vm/frame.h"
+#include "vm/page.h"
+
 #define LOGGING_LEVEL 6
 #define MAX_ARGS 100
 
@@ -484,6 +487,8 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
     ASSERT(pg_ofs(upage) == 0);
     ASSERT(ofs % PGSIZE == 0);
 
+    struct thread *current = thread_current();
+
     log(L_TRACE, "load_segment()");
     lock_acquire(&file_lock);
     file_seek(file, ofs);
@@ -497,31 +502,27 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-        /* Get a page of memory. */
-        uint8_t *kpage = palloc_get_page(PAL_USER);
-        if (kpage == NULL)
+        struct page *p = (struct page *)malloc(sizeof(struct page));
+        p->address = upage;
+        if (p == NULL)
         {
+            free(p);
             return false;
         }
-
-        /* Load this page. */
-        lock_acquire(&file_lock);
-        if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
-        {
-
-            palloc_free_page(kpage);
-            lock_release(&file_lock);
-            return false;
-        }
-        lock_release(&file_lock);
-        memset(kpage + page_read_bytes, 0, page_zero_bytes);
-
-        /* Add the page to the process's address space. */
-        if (!install_page(upage, kpage, writable))
-        {
-            palloc_free_page(kpage);
-            return false;
-        }
+        p->is_stack_page = false;
+        p->frame = NULL;
+        p->file_name = file;
+        p->offset = ofs;
+        p->status = DISK;
+        p->write_enable = writable;
+        p->read_bytes = page_read_bytes;
+        p->zero_bytes = page_zero_bytes;
+        p->pagedir = current->pagedir;
+        lock_init(&p->DO_NOT_TOUCH);
+        p->slot_num = -1;
+        hash_insert(&current->supp_page_table, &p->hash_elem);
+        // MOVE EVERYTHING STARTING HERE TO EXCEPTION.C PAGE_FAULT
+        // ENDING HERE
 
         /* Advance. */
         read_bytes -= page_read_bytes;
@@ -562,11 +563,12 @@ setup_stack(void **esp, const char *filename)
             break;
         }
     }
-
+ // change to supp page table
+ // following line deleted
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kpage != NULL)
-    {
-        success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
+    {   //page_init instead of install page install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
+        success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE);
         if (success)
         {
             *esp = PHYS_BASE;

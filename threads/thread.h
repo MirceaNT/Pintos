@@ -7,6 +7,8 @@
 
 #include "synch.h"
 
+#include <hash.h>
+#include "vm/page.h"
 /* States in a thread's life cycle. */
 enum thread_status
 {
@@ -121,6 +123,10 @@ struct thread
     struct semaphore load;
     struct thread *parent;
     struct file *execute;
+
+    // Added by Mircea for Virutal Memory
+    struct hash supp_page_table;
+    int stack_pages; // maybe needed to know how many stack pages i got?
 };
 
 struct thread *find_thread(tid_t);
