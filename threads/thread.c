@@ -478,8 +478,8 @@ init_thread(struct thread *t, const char *name, int priority)
     t->priority = priority;
     t->magic = THREAD_MAGIC;
 
-    // do we have a hash function?
-    hash_init(t->supp_page_table, );
+    // initialize the supp_page_table (hash_table here) yippeee. progress
+    hash_init(&t->supp_page_table, page_hash, page_less, NULL);
 
     old_level = intr_disable();
     list_push_back(&all_list, &t->allelem);

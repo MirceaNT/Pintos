@@ -32,4 +32,7 @@ struct page
     struct lock DO_NOT_TOUCH; // used to ensure I don't evict
 };
 
+unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED);
+bool page_less(const struct hash_elem *a_, const struct hash_elem *b_,
+               void *aux UNUSED);
 struct page *lookup_page(void *address);
