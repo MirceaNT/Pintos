@@ -516,7 +516,8 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         new_page->slot_num = -1;
         new_page->pagedir = thread_current()->pagedir;
         lock_init(&new_page->DO_NOT_TOUCH);
-        hash_insert(&thread_current()->supp_page_table, &new_page->hash_elem);
+        void *res = hash_insert(&thread_current()->supp_page_table, &new_page->hash_elem);
+        ASSERT(res == NULL && "not inserted in hash map properly");
 
         // /* Get a page of memory. */
         // uint8_t *kpage = palloc_get_page(PAL_USER);

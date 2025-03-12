@@ -39,7 +39,12 @@ struct fd_entry *get_fd_entry(int fd)
 bool is_valid_pointer(void *address)
 {
 
-    if (address == NULL || is_user_vaddr(address) == false || !pagedir_get_page(thread_current()->pagedir, address))
+    // if (address == NULL || is_user_vaddr(address) == false || !pagedir_get_page(thread_current()->pagedir, address))
+    // {
+    //     return false;
+    // }
+    // return true;
+    if (address == NULL || is_kernel_vaddr(address))
     {
         return false;
     }

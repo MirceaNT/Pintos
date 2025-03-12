@@ -11,7 +11,7 @@ struct frame_entry
     struct thread *current_thread;
 };
 
-void frame_init(size_t);
+void init_frame_table(size_t);
 struct frame_entry *get_frame(void);
 struct frame_entry *frame_get_multiple(size_t);
 void free_frame(struct frame_entry *);

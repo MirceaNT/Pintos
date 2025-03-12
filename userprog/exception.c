@@ -160,7 +160,7 @@ page_fault(struct intr_frame *f)
 
     /* Count page faults. */
     page_fault_cnt++;
-
+    printf("IM OVER HERE HERE HERE HERE HERE %d\n", fault_addr);
     if (!is_valid_address(fault_addr))
     {
         current->exit_status = -1;
@@ -225,7 +225,7 @@ page_fault(struct intr_frame *f)
         frame->corresponding_page = cur_page;
 
         lock_acquire(&file_lock);
-        if (file_read_at(cur_page->file_name, cur_page->read_bytes, 0, cur_page->offset) != (int)cur_page->read_bytes)
+        if (file_read_at(cur_page->file_name, kpage, cur_page->read_bytes, cur_page->offset) != (int)cur_page->read_bytes)
         {
             lock_release(&file_lock);
             // thread_current()->exit_status = -1;
@@ -240,7 +240,8 @@ page_fault(struct intr_frame *f)
             printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
             thread_exit();
         }
-
+        cur_page->status = IN_MEM;
+        cur_page->frame = frame;
         return;
     }
     if (cur_page->status == IN_SWAP)
