@@ -35,18 +35,36 @@ struct fd_entry *get_fd_entry(int fd)
     }
     return t->files[fd];
 }
-
+static int
+get_user(const uint8_t *uaddr)
+{
+    int result;
+    asm("movl $1f, %0; movzbl %1, %0; 1:"
+        : "=&a"(result) : "m"(*uaddr));
+    return result;
+}
 bool is_valid_pointer(void *address)
 {
+    // if (address < PHYS_BASE)
+    // {
+    //     return get_user(address);
+    // }
 
-    // if (address == NULL || is_user_vaddr(address) == false || !pagedir_get_page(thread_current()->pagedir, address))
+    // if (address == NULL || is_user_vaddr(address) == false) //  || !pagedir_get_page(thread_current()->pagedir, address))
     // {
     //     return false;
     // }
-    // return true;
-    if (address == NULL || is_kernel_vaddr(address))
+    if (!pagedir_get_page(thread_current()->pagedir, address))
     {
-        return false;
+        if (address < PHYS_BASE)
+        {
+            int result = (get_user(address));
+            return !(result == -1);
+        }
+        else
+        {
+            return false;
+        }
     }
     return true;
 }
@@ -365,13 +383,40 @@ int sys_read(int fd, void *buffer, unsigned size)
     }
 }
 
+static bool
+put_user(uint8_t *udst, uint8_t byte)
+{
+    int error_code;
+    asm("movl $1f, %0; movb %b2, %1; 1:"
+        : "=&a"(error_code), "=m"(*udst) : "q"(byte));
+    return error_code != -1;
+}
+
 int sys_write(int fd, const void *buffer, unsigned size)
 {
 
     if (fd == 1)
     {
-        putbuf(buffer, size);
-        return size;
+        int checks = 0;
+        while ((int)(size - (1 << 12)) > 0)
+        {
+            checks++;
+            size -= PGSIZE;
+        }
+        if (is_valid_pointer(buffer) && is_valid_pointer(buffer + size))
+        {
+            while (checks > 0)
+            {
+                is_valid_pointer(buffer + (checks * PGSIZE));
+                checks--;
+            }
+            putbuf(buffer, size);
+            return size;
+        }
+        else
+        {
+            sys_exit(-1);
+        }
     }
     else
     {

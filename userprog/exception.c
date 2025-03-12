@@ -210,7 +210,6 @@ page_fault(struct intr_frame *f)
                   pagedir_set_page(current->pagedir, new_stack_pointer->address, stack_growth->kpage, new_stack_pointer->write_enable)))
             {
                 current->exit_status = -1;
-                // printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
                 thread_exit();
             }
 
@@ -228,7 +227,6 @@ page_fault(struct intr_frame *f)
         if (file_read_at(cur_page->file_name, kpage, cur_page->read_bytes, cur_page->offset) != (int)cur_page->read_bytes)
         {
             lock_release(&file_lock);
-            // thread_current()->exit_status = -1;
             thread_exit();
         }
         lock_release(&file_lock);
