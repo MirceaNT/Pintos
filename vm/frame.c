@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include <round.h>
 
 static struct bitmap *free_frames;
 static struct frame_entry *frame_table;
@@ -43,7 +44,7 @@ frame_get_multiple(size_t page_cnt)
     size_t fframe_num = bitmap_scan_and_flip(free_frames, 0, page_cnt, false);
     if (fframe_num != BITMAP_ERROR)
     {
-        frame_table[fframe_num].kpage = palloc_get_page(PAL_USER | PAL_ASSERT | PAL_ZERO);
+        frame_table[fframe_num].kpage = palloc_get_page(PAL_USER | PAL_ZERO);
         lock_release(&frame_lock);
         return &frame_table[fframe_num];
     }

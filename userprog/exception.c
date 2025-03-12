@@ -6,11 +6,32 @@
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
 
+#include "threads/vaddr.h"
+#include "threads/malloc.h"
+#include "threads/palloc.h"
+#include "userprog/pagedir.h"
+#include "userprog/syscall.h"
+#include "vm/frame.h"
+#include "vm/page.h"
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
 static void kill(struct intr_frame *);
 static void page_fault(struct intr_frame *);
+
+static bool is_valid_address(void *address)
+{
+    if (address == NULL)
+    {
+        return false;
+    }
+    if (is_kernel_vaddr(address))
+    {
+        return false;
+    }
+    return true;
+}
 
 /* Registers handlers for interrupts that can be caused by user
  * programs.
@@ -123,6 +144,7 @@ page_fault(struct intr_frame *f)
     bool user;        /* True: access by user, false: access by kernel. */
     void *fault_addr; /* Fault address. */
 
+    struct thread *current = thread_current();
     /* Obtain faulting address, the virtual address that was
      * accessed to cause the fault.  It may point to code or to
      * data.  It is not necessarily the address of the instruction
@@ -139,6 +161,92 @@ page_fault(struct intr_frame *f)
     /* Count page faults. */
     page_fault_cnt++;
 
+    if (!is_valid_address(fault_addr))
+    {
+        current->exit_status = -1;
+        thread_exit();
+    }
+
+    struct page *cur_page = lookup_page(fault_addr);
+
+    if (cur_page == NULL)
+    {
+        // check potential stack page
+        //  assuming that if within 32 bytes of the sp, then a push instruction happened
+        //  TODO: any other potential checks??
+        if (fault_addr < (f->esp - 32))
+        {
+            current->exit_status = -1;
+            thread_exit();
+        }
+
+        // make stack bigger here
+        char *current_sp = PHYS_BASE - (current->stack_pages * 4096);
+        char *new_page_address = (char *)(pg_no(fault_addr) << 12);
+        for (new_page_address; new_page_address < current_sp; new_page_address += 4096)
+        {
+            struct page *new_stack_pointer = (struct page *)malloc(sizeof(struct page));
+            new_stack_pointer->is_stack_page = true;
+            new_stack_pointer->address = new_page_address;
+            new_stack_pointer->status = IN_MEM;
+            new_stack_pointer->write_enable = true;
+            new_stack_pointer->file_name = NULL;
+            new_stack_pointer->offset = 0;
+            new_stack_pointer->read_bytes = 0;
+            new_stack_pointer->zero_bytes = 4096;
+            new_stack_pointer->pagedir = current->pagedir;
+            new_stack_pointer->slot_num = -1; // using -1 as peace of mind
+            lock_init(&new_stack_pointer->DO_NOT_TOUCH);
+            if (current->stack_pages > 2048)
+            {
+                current->exit_status = -1;
+                thread_exit();
+            }
+
+            struct frame_entry *stack_growth = get_frame();
+            stack_growth->corresponding_page = cur_page;
+            // this is what install page in process.c has
+            if (!(pagedir_get_page(current->pagedir, new_stack_pointer->address) == NULL &&
+                  pagedir_set_page(current->pagedir, new_stack_pointer->address, stack_growth->kpage, new_stack_pointer->write_enable)))
+            {
+                // current->exit_status = -1;
+                printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
+                thread_exit();
+            }
+
+            return;
+        }
+    }
+
+    if (cur_page->status == DISK)
+    {
+        struct frame_entry *frame = get_frame();
+        uint8_t *kpage = frame->kpage;
+        frame->corresponding_page = cur_page;
+
+        lock_acquire(&file_lock);
+        if (file_read_at(cur_page->file_name, cur_page->read_bytes, 0, cur_page->offset) != (int)cur_page->read_bytes)
+        {
+            lock_release(&file_lock);
+            // thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        lock_release(&file_lock);
+        memset(kpage + cur_page->read_bytes, 0, cur_page->zero_bytes);
+        if (!(pagedir_get_page(current->pagedir, cur_page->address) == NULL &&
+              pagedir_set_page(current->pagedir, cur_page->address, frame->kpage, cur_page->write_enable)))
+        {
+            current->exit_status = -1;
+            printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
+            thread_exit();
+        }
+
+        return;
+    }
+    if (cur_page->status == IN_SWAP)
+    {
+    }
+
     /* Determine cause. */
     not_present = (f->error_code & PF_P) == 0;
     write = (f->error_code & PF_W) != 0;
@@ -152,6 +260,5 @@ page_fault(struct intr_frame *f)
            not_present ? "not present" : "rights violation",
            write ? "writing" : "reading",
            user ? "user" : "kernel");
-    thread_current()->exit_status = -1;
     kill(f);
 }

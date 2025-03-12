@@ -126,7 +126,7 @@ struct thread
 
     // added for vm
     struct hash supp_page_table;
-    int stack_pages; // maybe needed
+    int stack_pages; // needed for clearing frame table upon a process exiting?
 };
 
 struct thread *find_thread(tid_t);

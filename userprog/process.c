@@ -497,31 +497,52 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-        /* Get a page of memory. */
-        uint8_t *kpage = palloc_get_page(PAL_USER);
-        if (kpage == NULL)
-        {
-            return false;
-        }
+        /*
 
-        /* Load this page. */
-        lock_acquire(&file_lock);
-        if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
-        {
+        set up supplemental page table
 
-            palloc_free_page(kpage);
-            lock_release(&file_lock);
-            return false;
-        }
-        lock_release(&file_lock);
-        memset(kpage + page_read_bytes, 0, page_zero_bytes);
+        */
 
-        /* Add the page to the process's address space. */
-        if (!install_page(upage, kpage, writable))
-        {
-            palloc_free_page(kpage);
-            return false;
-        }
+        struct page *new_page = (struct page *)malloc(sizeof(struct page));
+        new_page->address = upage;
+        new_page->status = DISK;
+        new_page->frame = NULL;
+        new_page->is_stack_page = false;
+        new_page->write_enable = writable;
+        new_page->file_name = file;
+        new_page->offset = ofs;
+        new_page->read_bytes = page_read_bytes;
+        new_page->zero_bytes = page_zero_bytes;
+        new_page->slot_num = -1;
+        new_page->pagedir = thread_current()->pagedir;
+        lock_init(&new_page->DO_NOT_TOUCH);
+        hash_insert(&thread_current()->supp_page_table, &new_page->hash_elem);
+
+        // /* Get a page of memory. */
+        // uint8_t *kpage = palloc_get_page(PAL_USER);
+        // if (kpage == NULL)
+        // {
+        //     return false;
+        // }
+
+        // /* Load this page. */
+        // lock_acquire(&file_lock);
+        // if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes)
+        // {
+
+        //     palloc_free_page(kpage);
+        //     lock_release(&file_lock);
+        //     return false;
+        // }
+        // lock_release(&file_lock);
+        // memset(kpage + page_read_bytes, 0, page_zero_bytes);
+
+        // /* Add the page to the process's address space. */
+        // if (!install_page(upage, kpage, writable))
+        // {
+        //     palloc_free_page(kpage);
+        //     return false;
+        // }
 
         /* Advance. */
         read_bytes -= page_read_bytes;
@@ -541,7 +562,7 @@ setup_stack(void **esp, const char *filename)
 
     log(L_TRACE, "setup_stack()");
 
-    char *filename_copy = palloc_get_page(PAL_USER | PAL_ZERO); // get an empty page set to zeros (null terminator will not need to be copied over since it's all 0's);
+    char *filename_copy = malloc(sizeof(char) * 100); // get an empty page set to zeros (null terminator will not need to be copied over since it's all 0's);
     if (filename_copy == NULL)
     {
         log(L_TRACE, "obtaining a page for the filename copy was unsuccessful");
@@ -563,10 +584,31 @@ setup_stack(void **esp, const char *filename)
         }
     }
 
-    kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+    /* I want better spacing than the autosave
+
+
+    */
+    // replace kpage with get_frame and put it in frame_table
+    struct page *new_page = (struct page *)malloc(sizeof(struct page));
+    new_page->address = PHYS_BASE - PGSIZE; // it's the first page so all good
+    new_page->status = IN_MEM;
+    new_page->write_enable = true;
+    new_page->file_name = NULL;
+    new_page->offset = 0;
+    new_page->read_bytes = 0;
+    new_page->zero_bytes = PGSIZE - new_page->read_bytes;
+    new_page->pagedir = thread_current()->pagedir;
+    new_page->slot_num = -1; // this should be irrelevant? (-1 for peace of mind);
+    hash_insert(&thread_current()->supp_page_table, &new_page->hash_elem);
+    thread_current()->stack_pages++;
+    struct frame_entry *stack_frame = get_frame();
+    new_page->frame = stack_frame;
+    kpage = stack_frame->kpage;
+    stack_frame->corresponding_page = new_page;
+
     if (kpage != NULL)
     {
-        success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
+        success = install_page(new_page->address, kpage, true);
         if (success)
         {
             *esp = PHYS_BASE;
@@ -621,7 +663,7 @@ setup_stack(void **esp, const char *filename)
         }
         // hex_dump(*(int *)esp, *esp, 128, true); // NOTE: uncomment this to check arg passing
     }
-    palloc_free_page(filename_copy);
+    free(filename_copy);
     return success;
 }
 

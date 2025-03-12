@@ -29,7 +29,7 @@ struct page
     size_t zero_bytes;
     size_t read_bytes;
     uint32_t *pagedir;
-    struct lock DO_NOT_TOUCH; // used to ensure I don't evict
+    struct lock DO_NOT_TOUCH; // used to ensure mutual exclusion when touching pages
 };
 
 unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED);
