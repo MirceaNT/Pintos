@@ -360,14 +360,33 @@ int sys_filesize(int fd)
 
 int sys_read(int fd, void *buffer, unsigned size)
 {
-    if (!is_user_vaddr(buffer))
+
+    if (size == 0)
     {
-        sys_exit(-1);
+        return 0;
     }
-    if (!is_valid_pointer(buffer))
+    int num_pages = ((size - 1) / PGSIZE) + 1;
+
+    for (int i = 0; i < num_pages; i++)
     {
-        sys_exit(-1);
+        if (!is_user_vaddr((char *)buffer + (i * PGSIZE)))
+        {
+            sys_exit(-1);
+        }
+        if (!is_valid_pointer((char *)buffer + (i * PGSIZE)))
+        {
+            sys_exit(-1);
+        }
     }
+
+    // if (!is_user_vaddr(buffer) || !is_user_vaddr((char *)buffer + size))
+    // {
+    //     sys_exit(-1);
+    // }
+    // if (!is_valid_pointer(buffer) || !is_user_vaddr((char *)buffer + size))
+    // {
+    //     sys_exit(-1);
+    // }
     if (fd == 0)
     {
         unsigned i;
