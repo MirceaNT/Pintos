@@ -54,6 +54,10 @@ bool is_valid_pointer(void *address)
     // {
     //     return false;
     // }
+    if (is_kernel_vaddr(address))
+    {
+        return false;
+    }
     if (!pagedir_get_page(thread_current()->pagedir, address))
     {
         if (address < PHYS_BASE)
@@ -310,6 +314,7 @@ int sys_open(const char *file)
         lock_release(&file_lock);
         return -1;
     }
+    lock_release(&file_lock);
 
     struct thread *t = thread_current();
     int fd;
@@ -321,6 +326,7 @@ int sys_open(const char *file)
             struct fd_entry *entry = malloc(sizeof entry);
             if (entry == NULL)
             {
+                lock_acquire(&file_lock);
                 file_close(curFile);
                 lock_release(&file_lock);
                 return -1;
@@ -328,7 +334,7 @@ int sys_open(const char *file)
             entry->fd = fd;
             entry->file = curFile;
             t->files[fd] = entry;
-            lock_release(&file_lock);
+
             return fd;
         }
     }
@@ -354,6 +360,10 @@ int sys_filesize(int fd)
 
 int sys_read(int fd, void *buffer, unsigned size)
 {
+    if (!is_user_vaddr(buffer))
+    {
+        sys_exit(-1);
+    }
     if (!is_valid_pointer(buffer))
     {
         sys_exit(-1);
@@ -370,13 +380,14 @@ int sys_read(int fd, void *buffer, unsigned size)
     }
     else
     {
-        lock_acquire(&file_lock);
+
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
-            lock_release(&file_lock);
+
             return -1;
         }
+        lock_acquire(&file_lock);
         int bytes_read = file_read(entry->file, buffer, size);
         lock_release(&file_lock);
         return bytes_read;
@@ -420,14 +431,13 @@ int sys_write(int fd, const void *buffer, unsigned size)
     }
     else
     {
-        lock_acquire(&file_lock);
+
         struct fd_entry *entry = get_fd_entry(fd);
-        if (entry == NULL || entry->file == NULL || !is_valid_pointer(buffer))
+        if (entry == NULL || entry->file == NULL || !is_valid_pointer(buffer) || !is_valid_pointer(buffer + size))
         {
-            lock_release(&file_lock);
             sys_exit(-1);
         }
-
+        lock_acquire(&file_lock);
         int bite_size = file_write(entry->file, buffer, size);
         lock_release(&file_lock);
         return bite_size;
