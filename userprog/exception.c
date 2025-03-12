@@ -160,7 +160,7 @@ page_fault(struct intr_frame *f)
 
     /* Count page faults. */
     page_fault_cnt++;
-    printf("IM OVER HERE HERE HERE HERE HERE %d\n", fault_addr);
+    // printf("IM OVER HERE HERE HERE HERE HERE %d\n", fault_addr);
     if (!is_valid_address(fault_addr))
     {
         current->exit_status = -1;
@@ -209,8 +209,8 @@ page_fault(struct intr_frame *f)
             if (!(pagedir_get_page(current->pagedir, new_stack_pointer->address) == NULL &&
                   pagedir_set_page(current->pagedir, new_stack_pointer->address, stack_growth->kpage, new_stack_pointer->write_enable)))
             {
-                // current->exit_status = -1;
-                printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
+                current->exit_status = -1;
+                // printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
                 thread_exit();
             }
 
