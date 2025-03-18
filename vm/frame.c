@@ -2,7 +2,10 @@
 #include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+
 #include "vm/frame.h"
+#include "vm/swap.h"
 #include <round.h>
 
 static struct bitmap *free_frames;
@@ -40,6 +43,7 @@ void init_frame_table(size_t user_pages)
 struct frame_entry *
 frame_get_multiple(size_t page_cnt)
 {
+    struct thread *cur_thread = thread_current();
     lock_acquire(&frame_lock);
     size_t fframe_num = bitmap_scan_and_flip(free_frames, 0, page_cnt, false);
     if (fframe_num != BITMAP_ERROR)
@@ -47,6 +51,24 @@ frame_get_multiple(size_t page_cnt)
         frame_table[fframe_num].kpage = palloc_get_page(PAL_USER | PAL_ZERO);
         lock_release(&frame_lock);
         return &frame_table[fframe_num];
+    }
+    else
+    {
+
+        while (pagedir_is_accessed(cur_thread->pagedir, frame_table[clock_ptr].corresponding_page->address))
+        {
+            pagedir_set_accessed(cur_thread->pagedir, frame_table[clock_ptr].corresponding_page->address, false);
+            clock_ptr = (clock_ptr + 1) % clock_max;
+        }
+        swap_MEM_TO_SWAP(frame_table[clock_ptr].corresponding_page);
+        frame_table[clock_ptr].corresponding_page->frame = NULL;
+        frame_table[clock_ptr].corresponding_page->status = IN_SWAP;
+        pagedir_clear_page(frame_table[clock_ptr].corresponding_page->pagedir, frame_table[clock_ptr].corresponding_page->address);
+
+        int frame_entry_proper = clock_ptr;
+        clock_ptr = (clock_ptr + 1) & clock_max;
+        lock_release(&frame_lock);
+        return &frame_table[frame_entry_proper];
     }
 }
 
