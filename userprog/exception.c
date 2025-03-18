@@ -11,9 +11,10 @@
 #include "threads/palloc.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+
 #include "vm/frame.h"
 #include "vm/page.h"
-
+#include "vm/swap.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -227,6 +228,7 @@ page_fault(struct intr_frame *f)
         if (file_read_at(cur_page->file_name, kpage, cur_page->read_bytes, cur_page->offset) != (int)cur_page->read_bytes)
         {
             lock_release(&file_lock);
+            current->exit_status = -1;
             thread_exit();
         }
         lock_release(&file_lock);
@@ -235,21 +237,50 @@ page_fault(struct intr_frame *f)
               pagedir_set_page(current->pagedir, cur_page->address, frame->kpage, cur_page->write_enable)))
         {
             current->exit_status = -1;
-            printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
+            // printf("ERROR IN THE STACK GROWTH PAGE EXCPETION HANDLER\n");
             thread_exit();
         }
         cur_page->status = IN_MEM;
         cur_page->frame = frame;
         return;
     }
+
     if (cur_page->status == IN_SWAP)
     {
+        struct frame_entry *frame = get_frame();
+        uint8_t *kpage = frame->kpage;
+        frame->corresponding_page = cur_page;
+        cur_page->frame = frame;
+
+        swap_SWAP_TO_MEM(cur_page);
+
+        if (!(pagedir_get_page(current->pagedir, cur_page->address) == NULL && pagedir_set_page(current->pagedir, cur_page->address, kpage, cur_page->write_enable)))
+        {
+            current->exit_status = -1;
+            thread_exit();
+        }
+
+        cur_page->status = IN_MEM;
+        pagedir_set_dirty(current->pagedir, cur_page, true);
+        return;
+    }
+
+    if (pagedir_get_page(current->pagedir, fault_addr) == NULL)
+    {
+        current->exit_status = -1;
+        thread_exit();
     }
 
     /* Determine cause. */
     not_present = (f->error_code & PF_P) == 0;
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
+
+    if (!not_present && write)
+    {
+        current->exit_status = -1;
+        thread_exit();
+    }
 
     /* To implement virtual memory, delete the rest of the function
      * body, and replace it with code that brings in the page to

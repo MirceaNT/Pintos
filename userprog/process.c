@@ -131,9 +131,9 @@ void process_exit(void)
 
     printf("%s: exit(%d)\n", cur->name, cur->exit_status);
     sema_up(&cur->semaphore1);
-    lock_acquire(&file_lock);
+    // lock_acquire(&file_lock);
     file_close(cur->execute);
-    lock_release(&file_lock);
+    // lock_release(&file_lock);
     sema_down(&cur->semaphore2);
 
     /* Destroy the current process's page directory and switch back
