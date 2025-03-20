@@ -224,14 +224,14 @@ page_fault(struct intr_frame *f)
         uint8_t *kpage = frame->kpage;
         frame->corresponding_page = cur_page;
 
-        lock_acquire(&file_lock);
+        // lock_acquire(&file_lock);
         if (file_read_at(cur_page->file_name, kpage, cur_page->read_bytes, cur_page->offset) != (int)cur_page->read_bytes)
         {
-            lock_release(&file_lock);
+            // lock_release(&file_lock);
             current->exit_status = -1;
             thread_exit();
         }
-        lock_release(&file_lock);
+        // lock_release(&file_lock);
         memset(kpage + cur_page->read_bytes, 0, cur_page->zero_bytes);
         if (!(pagedir_get_page(current->pagedir, cur_page->address) == NULL &&
               pagedir_set_page(current->pagedir, cur_page->address, frame->kpage, cur_page->write_enable)))
