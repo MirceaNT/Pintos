@@ -1,6 +1,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-
+#include "vm/swap.h"
 // the following functions are obtained from the pintos website :)
 
 /* Returns a hash value for page p. */
@@ -37,5 +37,20 @@ struct page *lookup_page(void *address)
     else
     {
         return hash_entry(hash_element, struct page, hash_elem);
+    }
+}
+
+void free_page(struct hash_elem *element)
+{
+    struct page *cur_page = hash_entry(element, struct page, hash_elem);
+    if (cur_page->frame != NULL)
+    {
+        struct frame *cur_frame = cur_page->frame;
+        cur_page->frame = NULL;
+        free_frame(cur_frame);
+    }
+    if (cur_page->slot_num != -1)
+    {
+        swap_clear(cur_page);
     }
 }

@@ -66,7 +66,7 @@ frame_get_multiple(size_t page_cnt)
         pagedir_clear_page(frame_table[clock_ptr].corresponding_page->pagedir, frame_table[clock_ptr].corresponding_page->address);
 
         int frame_entry_proper = clock_ptr;
-        clock_ptr = (clock_ptr + 1) & clock_max;
+        clock_ptr = (clock_ptr + 1) % clock_max;
         lock_release(&frame_lock);
         return &frame_table[frame_entry_proper];
     }

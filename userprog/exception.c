@@ -261,7 +261,7 @@ page_fault(struct intr_frame *f)
         }
 
         cur_page->status = IN_MEM;
-        pagedir_set_dirty(current->pagedir, cur_page, true);
+        // pagedir_set_dirty(current->pagedir, cur_page, true);
         return;
     }
 

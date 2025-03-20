@@ -20,6 +20,8 @@
 #include "userprog/tss.h"
 #include "userprog/syscall.h"
 
+#include "vm/page.h"
+
 #define LOGGING_LEVEL 6
 #define MAX_ARGS 100
 
@@ -129,10 +131,27 @@ void process_exit(void)
     struct thread *cur = thread_current();
     uint32_t *pd;
 
-    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+    if (cur->name != NULL)
+    {
+        printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+    }
+
     sema_up(&cur->semaphore1);
     // lock_acquire(&file_lock);
+
+    hash_destroy(&cur->supp_page_table, free_page);
+    for (int i = 0; i < 128; i++)
+    {
+        if (cur->files[i] != NULL && cur->files[i]->file != NULL)
+        {
+            // lock_acquire(&file_lock);
+            file_close(cur->files[i]->file);
+            // lock_release(&file_lock);
+            free(cur->files[i]);
+        }
+    }
     file_close(cur->execute);
+
     // lock_release(&file_lock);
     sema_down(&cur->semaphore2);
 

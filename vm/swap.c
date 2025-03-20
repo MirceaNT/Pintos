@@ -30,7 +30,7 @@ void swap_MEM_TO_SWAP(struct page *evicted_page)
         block_write(swap_space, starting_slot * 8 + i, pointer);
         pointer = pointer + 512;
     }
-    evicted_page->status = IN_SWAP;
+
     lock_release(&swap_lock);
 }
 
@@ -53,9 +53,8 @@ void swap_SWAP_TO_MEM(struct page *insert_page)
 void swap_clear(struct page *clear_page)
 {
     lock_acquire(&swap_lock);
-    for (int i = 0; i < 8; i++)
-    {
-        bitmap_reset(swap_bitmap, clear_page->slot_num + i);
-    }
+
+    bitmap_reset(swap_bitmap, clear_page->slot_num);
+
     lock_release(&swap_lock);
 }
