@@ -8,8 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@utexas.edu>
-FirstName LastName <email@utexas.edu>
+Mircea Tatulescu <mirceatatulescu@utexas.edu>
+FirstName LastName <email@utexas.edu> (at this point, the TAs lol)
 
 ---- PRELIMINARIES ----
 
@@ -29,20 +29,109 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct thread
+{
+    /* Owned by thread.c. */
+    tid_t tid;                 /* Thread identifier. */
+    enum thread_status status; /* Thread state. */
+    char name[16];             /* Name (for debugging purposes). */
+    uint8_t *stack;            /* Saved stack pointer. */
+    int priority;              /* Priority. */
+    struct list_elem allelem;  /* List element for all threads list. */
+
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem; /* List element. */
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir; /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic; /* Detects stack overflow. */
+
+    // added by Mircea
+    struct fd_entry *files[128];
+    char first_word[128];
+    int loaded;
+    int wait;
+    // int exit;
+    int exit_status;
+    struct semaphore semaphore1;
+    struct semaphore semaphore2;
+    struct semaphore load;
+    struct thread *parent;
+    struct file *execute;
+
+    // added for vm
+    struct hash supp_page_table;
+    int stack_pages; // needed for clearing frame table upon a process exiting?
+};
+
+added the supplemental page table as a hash_map
+and number of stack pages for stack growth (not needed)
+
+static struct bitmap *swap_bitmap;
+keep track of which slots are free
+
+struct block *swap_space;
+actual storage for swap swap_space
+
+static struct lock swap_lock;
+help with synchronization around accessing swap_space
+
+enum location
+{
+    DISK,
+    IN_MEM,
+    IN_SWAP,
+    ZEROS // maybe for stack pages?
+};
+know where to look in exception handler for bringng in new page (zeros for new page, not used)
+
+struct page
+{
+    struct hash_elem hash_elem;
+    void *address;
+    struct frame_entry *frame;
+    enum location status;
+    bool is_stack_page;
+    bool write_enable;
+    struct file *file_name;
+    off_t offset;
+    int slot_num;
+    size_t zero_bytes;
+    size_t read_bytes;
+    uint32_t *pagedir;
+    struct lock DO_NOT_TOUCH; // used to ensure mutual exclusion when touching pages
+};
+everything in the load_segment function as well as a lock (i was a dreamer, never used it)
+
+
+
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for accessing the data
 >> stored in the SPT about a given page.
 
+I use a hash map with the functions from Stanford pintos website. In order to access my current supplemental page table, I use the hash_find function to look through it. If found, I return a pointer to my page struct.
+
 ---- SYNCHRONIZATION ----
 
 >> A3: When two user processes both need a new frame at the same time,
 >> how are races avoided?
+They aren't (I fail the parallel cases ). I planned to add locks for when I access the frame_table, but it doesn't look like I did a good job :(.
 
 ---- RATIONALE ----
 
 >> A4: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+
+Hash_map for the supplemental page table was used because Dr. Yeraballi was hyping up the hash_map and I was curious for how it worked "Under the hood" (I know that unordered_map in cpp exists but no idea about implementation)
+I use a big array for my frame table. I thought it'd be easy to index.
+I used a block_device for the swap_space because that's what it was made for. 
+
 
                         PAGING TO AND FROM DISK
                         =======================
@@ -53,18 +142,40 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+static struct bitmap *free_frames;
+keep track of frame_table
+
+static struct frame_entry *frame_table;
+actual data in frame table
+
+static unsigned clock_ptr, clock_max;
+current clock for eviction algorithm; made a variable to test variable mem_size (never happened :()
+
+static struct lock frame_lock;
+intended to help with synchronization. The story of the code is deadlock exists because of locks -> remove lock :)
+
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+I do a poor implementation of what a clock algorithm should be. While a page isn't accessed I go to the next one until one isn't accessed, then I write it to the swap space. The reason I chose to do such a poor implementation is because I knew the swap space was very large
+so I didn't need to worry about lack of space in that area of the "Operating System". It's in quotes since I wouldn't exactly call it operating.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+I have a very disgusting line:
+pagedir_clear_page(frame_table[clock_ptr].corresponding_page->pagedir, frame_table[clock_ptr].corresponding_page->address);
+To know that I no longer have this page in memory. This will cause a exception. 
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+fault_addr < (f->esp - 32) is my heuristic. 32 is the max distance it could be, but it could be any number of bytes in between since you have access to a push 1 byte as well as push 32 bytes
 
 ---- SYNCHRONIZATION ----
 
@@ -72,22 +183,29 @@ FirstName LastName <email@utexas.edu>
 >> particular, explain how it prevents deadlock.  (Refer to the
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
+Ideally, I planned to have many locks so that only one thread was accessing the frame_table, swap_space, and even have locks for pinned pages. I never used the pinned pages, and when I had I had a deadlock, I removed the lock (I'm not joking)
 
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
 
+I use some locks (swap_lock and frame_lock).
+
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
+
+I use the same locks as above. I don't think I did this right. Maybe that's why I don't get a 100...
 
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+I use page faults for bringing in user programs. I lazy load and make no attempt to "pin" user pages.
 
 ---- RATIONALE ----
 
@@ -97,6 +215,10 @@ FirstName LastName <email@utexas.edu>
 >> possibility for deadlock but allows for high parallelism.  Explain
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
+
+I use two locks (had the idea of a third) and I chose to design it like this since I needed some synchronization, but it didn't end up being perfecct.
+I ran into a deadlock and rather than fix it, I removed lock acquire that triggered it. My goal with this lab was to implement virtual memory a little more than ECE 460N did after learning about it for the first time, and I think I did that.
+There's much more to learn of course, but I definitly have a start as to where I need to study for future endeavors.
 
                            SURVEY QUESTIONS
                            ================
