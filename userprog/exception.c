@@ -23,11 +23,7 @@ static void page_fault(struct intr_frame *);
 
 static bool is_valid_address(void *address)
 {
-    if (address == NULL)
-    {
-        return false;
-    }
-    if (is_kernel_vaddr(address))
+    if (address == NULL || is_kernel_vaddr(address))
     {
         return false;
     }
@@ -198,11 +194,6 @@ page_fault(struct intr_frame *f)
             new_stack_pointer->pagedir = current->pagedir;
             new_stack_pointer->slot_num = -1; // using -1 as peace of mind
             lock_init(&new_stack_pointer->DO_NOT_TOUCH);
-            if (current->stack_pages > 2048)
-            {
-                current->exit_status = -1;
-                thread_exit();
-            }
 
             struct frame_entry *stack_growth = get_frame();
             stack_growth->corresponding_page = cur_page;
