@@ -526,7 +526,6 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         new_page->address = upage;
         new_page->status = DISK;
         new_page->frame = NULL;
-        new_page->is_stack_page = false;
         new_page->write_enable = writable;
         new_page->file_name = file;
         new_page->offset = ofs;
@@ -612,6 +611,10 @@ setup_stack(void **esp, const char *filename)
     // replace kpage with get_frame and put it in frame_table
     struct page *new_page = (struct page *)malloc(sizeof(struct page));
     new_page->address = PHYS_BASE - PGSIZE; // it's the first page so all good
+    thread_current()->stack_pages++;
+    new_page->frame = get_frame();
+    kpage = new_page->frame->kpage;
+    new_page->frame->corresponding_page = new_page;
     new_page->status = IN_MEM;
     new_page->write_enable = true;
     new_page->file_name = NULL;
@@ -621,11 +624,6 @@ setup_stack(void **esp, const char *filename)
     new_page->pagedir = thread_current()->pagedir;
     new_page->slot_num = -1; // this should be irrelevant? (-1 for peace of mind);
     hash_insert(&thread_current()->supp_page_table, &new_page->hash_elem);
-    thread_current()->stack_pages++;
-    struct frame_entry *stack_frame = get_frame();
-    new_page->frame = stack_frame;
-    kpage = stack_frame->kpage;
-    stack_frame->corresponding_page = new_page;
 
     if (kpage != NULL)
     {

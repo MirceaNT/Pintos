@@ -164,7 +164,7 @@ page_fault(struct intr_frame *f)
         thread_exit();
     }
 
-    struct page *cur_page = lookup_page(fault_addr);
+    struct page *cur_page = find_page(fault_addr);
 
     if (cur_page == NULL)
     {
@@ -178,35 +178,30 @@ page_fault(struct intr_frame *f)
         }
 
         // make stack bigger here
-        char *current_sp = PHYS_BASE - (current->stack_pages * 4096);
-        char *new_page_address = (char *)(pg_no(fault_addr) << 12);
-        for (new_page_address; new_page_address < current_sp; new_page_address += 4096)
+        struct page *new_stack_pointer = (struct page *)malloc(sizeof(struct page));
+        new_stack_pointer->address = pg_no(fault_addr) << 12;
+        new_stack_pointer->status = IN_MEM;
+        new_stack_pointer->write_enable = true;
+        new_stack_pointer->file_name = NULL;
+        new_stack_pointer->offset = 0;
+        new_stack_pointer->read_bytes = 0;
+        new_stack_pointer->zero_bytes = 4096;
+        new_stack_pointer->pagedir = current->pagedir;
+        new_stack_pointer->slot_num = -1; // using -1 as peace of mind
+        lock_init(&new_stack_pointer->DO_NOT_TOUCH);
+
+        struct frame_entry *stack_growth = get_frame();
+        stack_growth->corresponding_page = cur_page;
+        // this is what install page in process.c has
+        if (!(pagedir_get_page(current->pagedir, new_stack_pointer->address) == NULL &&
+              pagedir_set_page(current->pagedir, new_stack_pointer->address, stack_growth->kpage, new_stack_pointer->write_enable)))
         {
-            struct page *new_stack_pointer = (struct page *)malloc(sizeof(struct page));
-            new_stack_pointer->is_stack_page = true;
-            new_stack_pointer->address = new_page_address;
-            new_stack_pointer->status = IN_MEM;
-            new_stack_pointer->write_enable = true;
-            new_stack_pointer->file_name = NULL;
-            new_stack_pointer->offset = 0;
-            new_stack_pointer->read_bytes = 0;
-            new_stack_pointer->zero_bytes = 4096;
-            new_stack_pointer->pagedir = current->pagedir;
-            new_stack_pointer->slot_num = -1; // using -1 as peace of mind
-            lock_init(&new_stack_pointer->DO_NOT_TOUCH);
-
-            struct frame_entry *stack_growth = get_frame();
-            stack_growth->corresponding_page = cur_page;
-            // this is what install page in process.c has
-            if (!(pagedir_get_page(current->pagedir, new_stack_pointer->address) == NULL &&
-                  pagedir_set_page(current->pagedir, new_stack_pointer->address, stack_growth->kpage, new_stack_pointer->write_enable)))
-            {
-                current->exit_status = -1;
-                thread_exit();
-            }
-
-            return;
+            current->exit_status = -1;
+            thread_exit();
         }
+        // hash_insert(&thread_current()->supp_page_table, &new_stack_pointer->hash_elem);
+
+        return;
     }
 
     if (cur_page->status == DISK)
@@ -239,7 +234,7 @@ page_fault(struct intr_frame *f)
     if (cur_page->status == IN_SWAP)
     {
         struct frame_entry *frame = get_frame();
-        uint8_t *kpage = frame->kpage;
+        void *kpage = frame->kpage;
         frame->corresponding_page = cur_page;
         cur_page->frame = frame;
 

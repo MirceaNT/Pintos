@@ -18,10 +18,7 @@ void init_frame_table(size_t user_pages)
 {
 
     size_t bitmap_pages = DIV_ROUND_UP(bitmap_buf_size(user_pages), PGSIZE);
-    if (bitmap_pages > user_pages)
-    {
-        bitmap_pages = user_pages;
-    }
+
     user_pages -= bitmap_pages;
 
     clock_ptr = 0;

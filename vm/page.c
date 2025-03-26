@@ -21,14 +21,13 @@ bool page_less(const struct hash_elem *a_, const struct hash_elem *b_,
     return a->address < b->address;
 }
 
-struct page *lookup_page(void *address)
+struct page *find_page(void *address)
 {
-    struct thread *current = thread_current();
+
     struct page cur_page;
-    struct hash_elem *hash_element;
 
     cur_page.address = (void *)(pg_no(address) << 12);
-    hash_element = hash_find(&current->supp_page_table, &cur_page.hash_elem);
+    struct hash_elem *hash_element = hash_find(&thread_current()->supp_page_table, &cur_page.hash_elem);
 
     if (hash_element == NULL)
     {
@@ -52,5 +51,6 @@ void free_page(struct hash_elem *element)
     if (cur_page->slot_num != -1)
     {
         swap_clear(cur_page);
+        cur_page->slot_num = -1;
     }
 }

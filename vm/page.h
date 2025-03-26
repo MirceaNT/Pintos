@@ -21,7 +21,6 @@ struct page
     void *address;
     struct frame_entry *frame;
     enum location status;
-    bool is_stack_page;
     bool write_enable;
     struct file *file_name;
     off_t offset;
@@ -35,5 +34,5 @@ struct page
 unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED);
 bool page_less(const struct hash_elem *a_, const struct hash_elem *b_,
                void *aux UNUSED);
-struct page *lookup_page(void *);
+struct page *find_page(void *);
 void free_page(struct hash_elem *);

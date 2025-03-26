@@ -39,11 +39,9 @@ void swap_SWAP_TO_MEM(struct page *insert_page)
     lock_acquire(&swap_lock);
     uint8_t *pointer = insert_page->frame->kpage;
 
-    int starting_slot = insert_page->slot_num;
-
     for (int i = 0; i < 8; i++)
     {
-        block_read(swap_space, starting_slot * 8 + i, pointer);
+        block_read(swap_space, insert_page->slot_num * 8 + i, pointer);
         pointer = pointer + 512;
     }
     bitmap_reset(swap_bitmap, insert_page->slot_num);
@@ -53,8 +51,6 @@ void swap_SWAP_TO_MEM(struct page *insert_page)
 void swap_clear(struct page *clear_page)
 {
     lock_acquire(&swap_lock);
-
     bitmap_set(swap_bitmap, clear_page->slot_num, false);
-
     lock_release(&swap_lock);
 }

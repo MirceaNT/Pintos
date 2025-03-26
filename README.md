@@ -12,7 +12,7 @@ Installation
 
 - ### Install on your own machine
 
-    If you already setup Ubuntu in Yash project, you can follow the following installation instructions:
+    If ou already setup Ubuntu in Yash project, you can follow the following installation instructions:
 
     #### Dependencies
     Pintos relies on some core utilities, a gcc that can compile for i386, the corresponding binary utilities, gdb, and qemu. To get these on Debian-derived Linux distributions, run the following commands:
