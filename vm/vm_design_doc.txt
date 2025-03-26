@@ -190,7 +190,7 @@ Ideally, I planned to have many locks so that only one thread was accessing the 
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
 
-I use some locks (swap_lock and frame_lock).
+I use some locks (swap_lock and frame_lock). I have a lock that I acquire occasionally to limit these changes when I move frames around, but I can't say that it's very solid.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
