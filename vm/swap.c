@@ -54,7 +54,7 @@ void swap_clear(struct page *clear_page)
 {
     lock_acquire(&swap_lock);
 
-    bitmap_reset(swap_bitmap, clear_page->slot_num);
+    bitmap_set(swap_bitmap, clear_page->slot_num, false);
 
     lock_release(&swap_lock);
 }

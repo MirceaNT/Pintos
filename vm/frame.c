@@ -17,8 +17,6 @@ static struct lock frame_lock;
 void init_frame_table(size_t user_pages)
 {
 
-    unsigned i;
-
     size_t bitmap_pages = DIV_ROUND_UP(bitmap_buf_size(user_pages), PGSIZE);
     if (bitmap_pages > user_pages)
     {
@@ -31,10 +29,10 @@ void init_frame_table(size_t user_pages)
 
     frame_table = (struct frame_entry *)malloc(sizeof(struct frame_entry) * user_pages);
     free_frames = bitmap_create(user_pages);
-    for (i = 0; i < user_pages; i++)
+    for (int i = 0; i < user_pages; i++)
     {
-        frame_table[i].frame_num = i;
         frame_table[i].corresponding_page = NULL;
+        frame_table[i].frame_num = i;
     }
 
     lock_init(&frame_lock);
@@ -61,8 +59,8 @@ frame_get_multiple(size_t page_cnt)
             clock_ptr = (clock_ptr + 1) % clock_max;
         }
         swap_MEM_TO_SWAP(frame_table[clock_ptr].corresponding_page);
-        frame_table[clock_ptr].corresponding_page->frame = NULL;
         frame_table[clock_ptr].corresponding_page->status = IN_SWAP;
+        frame_table[clock_ptr].corresponding_page->frame = NULL;
         pagedir_clear_page(frame_table[clock_ptr].corresponding_page->pagedir, frame_table[clock_ptr].corresponding_page->address);
 
         int frame_entry_proper = clock_ptr;
@@ -78,13 +76,12 @@ get_frame()
     return frame_get_multiple(1);
 }
 
-/* Free given frame occupied by terminating process */
 void free_frame(struct frame_entry *f)
 {
     lock_acquire(&frame_lock);
     pagedir_clear_page(f->corresponding_page->pagedir, f->corresponding_page->address);
-    bitmap_reset(free_frames, f->frame_num);
-    palloc_free_page(frame_table[f->frame_num].kpage);
     f->corresponding_page = NULL;
+    palloc_free_page(frame_table[f->frame_num].kpage);
+    bitmap_set(free_frames, f->frame_num, false);
     lock_release(&frame_lock);
 }
