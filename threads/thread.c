@@ -215,6 +215,10 @@ tid_t thread_create(const char *name, int priority,
     sf->ebp = 0;
     t->parent = thread_current();
     t->loaded = 1;
+
+    // initialize the supp_page_table (hash_table here) yippeee. progress
+    hash_init(&t->supp_page_table, page_hash, page_less, NULL);
+
     /* Add to run queue. */
     thread_unblock(t);
 

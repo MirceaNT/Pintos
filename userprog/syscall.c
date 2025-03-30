@@ -35,13 +35,40 @@ struct fd_entry *get_fd_entry(int fd)
     }
     return t->files[fd];
 }
-
+static int
+get_user(const uint8_t *uaddr)
+{
+    int result;
+    asm("movl $1f, %0; movzbl %1, %0; 1:"
+        : "=&a"(result) : "m"(*uaddr));
+    return result;
+}
 bool is_valid_pointer(void *address)
 {
+    // if (address < PHYS_BASE)
+    // {
+    //     return get_user(address);
+    // }
 
-    if (address == NULL || is_user_vaddr(address) == false || !pagedir_get_page(thread_current()->pagedir, address))
+    // if (address == NULL || is_user_vaddr(address) == false) //  || !pagedir_get_page(thread_current()->pagedir, address))
+    // {
+    //     return false;
+    // }
+    if (is_kernel_vaddr(address))
     {
         return false;
+    }
+    if (!pagedir_get_page(thread_current()->pagedir, address))
+    {
+        if (address < PHYS_BASE)
+        {
+            int result = (get_user(address));
+            return !(result == -1);
+        }
+        else
+        {
+            return false;
+        }
     }
     return true;
 }
@@ -287,6 +314,7 @@ int sys_open(const char *file)
         lock_release(&file_lock);
         return -1;
     }
+    lock_release(&file_lock);
 
     struct thread *t = thread_current();
     int fd;
@@ -298,6 +326,7 @@ int sys_open(const char *file)
             struct fd_entry *entry = malloc(sizeof entry);
             if (entry == NULL)
             {
+                lock_acquire(&file_lock);
                 file_close(curFile);
                 lock_release(&file_lock);
                 return -1;
@@ -305,7 +334,7 @@ int sys_open(const char *file)
             entry->fd = fd;
             entry->file = curFile;
             t->files[fd] = entry;
-            lock_release(&file_lock);
+
             return fd;
         }
     }
@@ -331,10 +360,33 @@ int sys_filesize(int fd)
 
 int sys_read(int fd, void *buffer, unsigned size)
 {
-    if (!is_valid_pointer(buffer))
+
+    if (size == 0)
     {
-        sys_exit(-1);
+        return 0;
     }
+    int num_pages = ((size - 1) / PGSIZE) + 1;
+
+    for (int i = 0; i < num_pages; i++)
+    {
+        if (!is_user_vaddr((char *)buffer + (i * PGSIZE)))
+        {
+            sys_exit(-1);
+        }
+        if (!is_valid_pointer((char *)buffer + (i * PGSIZE)))
+        {
+            sys_exit(-1);
+        }
+    }
+
+    // if (!is_user_vaddr(buffer) || !is_user_vaddr((char *)buffer + size))
+    // {
+    //     sys_exit(-1);
+    // }
+    // if (!is_valid_pointer(buffer) || !is_user_vaddr((char *)buffer + size))
+    // {
+    //     sys_exit(-1);
+    // }
     if (fd == 0)
     {
         unsigned i;
@@ -347,17 +399,27 @@ int sys_read(int fd, void *buffer, unsigned size)
     }
     else
     {
-        lock_acquire(&file_lock);
+
         struct fd_entry *entry = get_fd_entry(fd);
         if (entry == NULL || entry->file == NULL)
         {
-            lock_release(&file_lock);
+
             return -1;
         }
+        lock_acquire(&file_lock);
         int bytes_read = file_read(entry->file, buffer, size);
         lock_release(&file_lock);
         return bytes_read;
     }
+}
+
+static bool
+put_user(uint8_t *udst, uint8_t byte)
+{
+    int error_code;
+    asm("movl $1f, %0; movb %b2, %1; 1:"
+        : "=&a"(error_code), "=m"(*udst) : "q"(byte));
+    return error_code != -1;
 }
 
 int sys_write(int fd, const void *buffer, unsigned size)
@@ -365,19 +427,36 @@ int sys_write(int fd, const void *buffer, unsigned size)
 
     if (fd == 1)
     {
-        putbuf(buffer, size);
-        return size;
+        int checks = 0;
+        while ((int)(size - (1 << 12)) > 0)
+        {
+            checks++;
+            size -= PGSIZE;
+        }
+        if (is_valid_pointer(buffer) && is_valid_pointer(buffer + size))
+        {
+            while (checks > 0)
+            {
+                is_valid_pointer(buffer + (checks * PGSIZE));
+                checks--;
+            }
+            putbuf(buffer, size);
+            return size;
+        }
+        else
+        {
+            sys_exit(-1);
+        }
     }
     else
     {
-        lock_acquire(&file_lock);
+
         struct fd_entry *entry = get_fd_entry(fd);
-        if (entry == NULL || entry->file == NULL || !is_valid_pointer(buffer))
+        if (entry == NULL || entry->file == NULL || !is_valid_pointer(buffer) || !is_valid_pointer(buffer + size))
         {
-            lock_release(&file_lock);
             sys_exit(-1);
         }
-
+        lock_acquire(&file_lock);
         int bite_size = file_write(entry->file, buffer, size);
         lock_release(&file_lock);
         return bite_size;

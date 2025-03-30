@@ -12,6 +12,8 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 
+#include "vm/frame.h"
+
 /* Page allocator.  Hands out memory in page-size (or
  * page-multiple) chunks.  See malloc.h for an allocator that
  * hands out smaller chunks.
@@ -27,10 +29,11 @@
  * kernel pool, but that's just fine for demonstration purposes. */
 
 /* A memory pool. */
-struct pool {
-    struct lock    lock;     /* Mutual exclusion. */
+struct pool
+{
+    struct lock lock;        /* Mutual exclusion. */
     struct bitmap *used_map; /* Bitmap of free pages. */
-    uint8_t       *base;     /* Base of pool. */
+    uint8_t *base;           /* Base of pool. */
 };
 
 /* Two pools: one for kernel data, one for user pages. */
@@ -42,8 +45,7 @@ static bool page_from_pool(const struct pool *, void *page);
 
 /* Initializes the page allocator.  At most USER_PAGE_LIMIT
  * pages are put into the user pool. */
-void
-palloc_init(size_t user_page_limit)
+void palloc_init(size_t user_page_limit)
 {
     /* Free memory starts at 1 MB and runs to the end of RAM. */
     uint8_t *free_start = ptov(1024 * 1024);
@@ -52,7 +54,8 @@ palloc_init(size_t user_page_limit)
     size_t user_pages = free_pages / 2;
     size_t kernel_pages;
 
-    if (user_pages > user_page_limit) {
+    if (user_pages > user_page_limit)
+    {
         user_pages = user_page_limit;
     }
     kernel_pages = free_pages - user_pages;
@@ -61,6 +64,7 @@ palloc_init(size_t user_page_limit)
     init_pool(&kernel_pool, free_start, kernel_pages, "kernel pool");
     init_pool(&user_pool, free_start + kernel_pages * PGSIZE,
               user_pages, "user pool");
+    init_frame_table(user_pages);
 }
 
 /* Obtains and returns a group of PAGE_CNT contiguous free pages.
@@ -76,7 +80,8 @@ palloc_get_multiple(enum palloc_flags flags, size_t page_cnt)
     void *pages;
     size_t page_idx;
 
-    if (page_cnt == 0) {
+    if (page_cnt == 0)
+    {
         return NULL;
     }
 
@@ -84,18 +89,26 @@ palloc_get_multiple(enum palloc_flags flags, size_t page_cnt)
     page_idx = bitmap_scan_and_flip(pool->used_map, 0, page_cnt, false);
     lock_release(&pool->lock);
 
-    if (page_idx != BITMAP_ERROR) {
+    if (page_idx != BITMAP_ERROR)
+    {
         pages = pool->base + PGSIZE * page_idx;
-    } else {
+    }
+    else
+    {
         pages = NULL;
     }
 
-    if (pages != NULL) {
-        if (flags & PAL_ZERO) {
+    if (pages != NULL)
+    {
+        if (flags & PAL_ZERO)
+        {
             memset(pages, 0, PGSIZE * page_cnt);
         }
-    } else {
-        if (flags & PAL_ASSERT) {
+    }
+    else
+    {
+        if (flags & PAL_ASSERT)
+        {
             PANIC("palloc_get: out of pages");
         }
     }
@@ -117,22 +130,27 @@ palloc_get_page(enum palloc_flags flags)
 }
 
 /* Frees the PAGE_CNT pages starting at PAGES. */
-void
-palloc_free_multiple(void *pages, size_t page_cnt)
+void palloc_free_multiple(void *pages, size_t page_cnt)
 {
     struct pool *pool;
     size_t page_idx;
 
     ASSERT(pg_ofs(pages) == 0);
-    if (pages == NULL || page_cnt == 0) {
+    if (pages == NULL || page_cnt == 0)
+    {
         return;
     }
 
-    if (page_from_pool(&kernel_pool, pages)) {
+    if (page_from_pool(&kernel_pool, pages))
+    {
         pool = &kernel_pool;
-    } else if (page_from_pool(&user_pool, pages)) {
+    }
+    else if (page_from_pool(&user_pool, pages))
+    {
         pool = &user_pool;
-    } else {
+    }
+    else
+    {
         NOT_REACHED();
     }
 
@@ -147,8 +165,7 @@ palloc_free_multiple(void *pages, size_t page_cnt)
 }
 
 /* Frees the page at PAGE. */
-void
-palloc_free_page(void *page)
+void palloc_free_page(void *page)
 {
     palloc_free_multiple(page, 1);
 }
@@ -163,7 +180,8 @@ init_pool(struct pool *p, void *base, size_t page_cnt, const char *name)
      * and subtract it from the pool's size. */
     size_t bm_pages = DIV_ROUND_UP(bitmap_buf_size(page_cnt), PGSIZE);
 
-    if (bm_pages > page_cnt) {
+    if (bm_pages > page_cnt)
+    {
         PANIC("Not enough memory in %s for bitmap.", name);
     }
     page_cnt -= bm_pages;
