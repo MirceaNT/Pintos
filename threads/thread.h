@@ -83,10 +83,16 @@ typedef int tid_t;
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
 
+enum file_type
+{
+    FILE,
+    DIRECTORY
+};
 struct fd_entry
 {
     int fd;
     struct file *file;
+    enum file_type file_or_dir;
 };
 struct thread
 {
