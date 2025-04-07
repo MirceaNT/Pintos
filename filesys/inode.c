@@ -130,7 +130,9 @@ bytes_to_sectors(off_t size)
  * POS. */
 
 /*
-This should be finished
+// my goal is to implement this. I will need some block reads since I can't do this with block_sectors...
+// double_sector[(pos / BLOCK_SECTOR_SIZE) / INDIRECT_SIZE][((pos / BLOCK_SECTOR_SIZE) / INDIRECT_SIZE) % DIRECT_SIZE];
+
 */
 static block_sector_t
 byte_to_sector(const struct inode *inode, off_t pos)
@@ -138,31 +140,18 @@ byte_to_sector(const struct inode *inode, off_t pos)
     ASSERT(inode != NULL);
     if (pos < inode->data.length)
     {
-        // my goal is to implement this. I will need some block reads since I can't do this with block_sectors...
-        // double_sector[(pos / BLOCK_SECTOR_SIZE) / INDIRECT_SIZE][((pos / BLOCK_SECTOR_SIZE) / INDIRECT_SIZE) % DIRECT_SIZE];
-
         int block_index = pos / BLOCK_SECTOR_SIZE;
-        // Read the double-indirect (outer) block into the global buffer.
-        // lock_acquire(&global_buffer_lock);
-        block_read(fs_device, inode->data.double_indirect_block, global_buffer);
-        // Cast the global buffer to a block_sector_t array.
-        block_sector_t *outer_block = (block_sector_t *)global_buffer;
+
+        block_sector_t outer_block[INDIRECT_SIZE];
+        block_read(fs_device, inode->data.double_indirect_block, outer_block);
         block_sector_t indirect_sector = outer_block[block_index / INDIRECT_SIZE];
-        // lock_release(&global_buffer_lock);
-
         if (indirect_sector == 0)
+        {
             return -1;
-
-        // Read the indirect (inner) block into the global buffer.
-        // lock_acquire(&global_buffer_lock);
-        block_read(fs_device, indirect_sector, global_buffer);
-        block_sector_t *inner_block = (block_sector_t *)global_buffer;
-        block_sector_t result = inner_block[block_index % INDIRECT_SIZE];
-        // lock_release(&global_buffer_lock);
-
-        return result;
-
-        // return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+        }
+        block_sector_t inner_block[INDIRECT_SIZE];
+        block_read(fs_device, indirect_sector, inner_block);
+        return inner_block[block_index % INDIRECT_SIZE];
     }
     else
     {
@@ -429,6 +418,7 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
 
         /* Disk sector to read, starting byte offset within sector. */
         block_sector_t sector_idx = byte_to_sector(inode, offset);
+        // printf("Reading from %d\n", sector_idx);
         int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
         /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -502,13 +492,14 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size,
             return 0;
         }
     }
+    // print out byte and sector, and make sure that they meet up in the right place
 
     while (size > 0)
     {
         /* Sector to write, starting byte offset within sector. */
         block_sector_t sector_idx = byte_to_sector(inode, offset);
         int sector_ofs = offset % BLOCK_SECTOR_SIZE;
-
+        // printf("Writing at sector: %d\n", sector_idx);
         /* Bytes left in inode, bytes left in sector, lesser of the two. */
         off_t inode_left = inode_length(inode) - offset;
         int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
