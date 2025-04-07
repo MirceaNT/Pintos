@@ -6,27 +6,37 @@
 
 #include "devices/block.h"
 #include "filesys/off_t.h"
+#include "threads/synch.h"
 
 struct bitmap;
+struct lock global_buffer_lock;
 
 /* On-disk inode.
  * Must be exactly BLOCK_SECTOR_SIZE bytes long. */
-struct inode_disk {
-    block_sector_t start;       /* First data sector. */
-    off_t          length;      /* File size in bytes. */
-    unsigned       magic;       /* Magic number. */
-    uint32_t       unused[125]; /* Not used. */
+struct inode_disk
+{
+    block_sector_t double_indirect_block;
+    // block_sector_t start; /* First data sector. */ // TODO: REMOVE WHEN CHANGED FUNCTIONS
+    block_sector_t lol;                   // place holder for start
+    off_t length;                         /* File size in bytes. */
+    unsigned magic;                       /* Magic number. */
+    uint32_t is_dir;                      // made it uint since easier for alignment of the rest of the array
+    uint32_t unused[123]; /* Not used. */ // TODO: CHANGE TO 124 AFTER COMMENTING OUT START. (FUNCTIONS aren't changed to accomodate for the double indirect block yet)
 };
 
 /* In-memory inode. */
-struct inode {
-    struct list_elem  elem;           /* Element in inode list. */
-    block_sector_t    sector;         /* Sector number of disk location. */
-    int               open_cnt;       /* Number of openers. */
-    bool              removed;        /* True if deleted, false otherwise. */
-    int               deny_write_cnt; /* 0: writes ok, >0: deny writes. */
-    struct inode_disk data;           /* Inode content. */
+struct inode
+{
+    struct list_elem elem;  /* Element in inode list. */
+    block_sector_t sector;  /* Sector number of disk location. */
+    int open_cnt;           /* Number of openers. */
+    bool removed;           /* True if deleted, false otherwise. */
+    int deny_write_cnt;     /* 0: writes ok, >0: deny writes. */
+    struct inode_disk data; /* Inode content. */
 };
+
+bool inode_extend(struct inode *, int);
+static inline size_t bytes_to_sectors(off_t size);
 
 void inode_init(void);
 bool inode_create(block_sector_t, off_t);
