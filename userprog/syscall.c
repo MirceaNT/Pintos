@@ -217,6 +217,33 @@ void syscall_handler(struct intr_frame *f UNUSED)
         fd = *(int *)((char *)f->esp + 4);
         sys_close(fd);
         break;
+    case SYS_CHDIR:
+        // bool chdir (const char *dir)
+        printf("To Implement\n");
+        break;
+    case SYS_MKDIR:
+        // bool mkdir(const char *dir);
+        printf("To Implement\n");
+        break;
+    case SYS_READDIR:
+        // bool readdir (int fd, char *name);
+        printf("To Implement\n");
+        break;
+    case SYS_ISDIR:
+        // bool isdir (int fd);
+        printf("To Implement\n");
+        break;
+    case SYS_INUMBER:
+        // int inumber (int fd);
+        printf("To Implement\n");
+        if (!is_valid_pointer((char *)f->esp + 4))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        struct inode *lol = (struct inode *)((char *)f->esp + 4);
+        f->eax = inode_get_inumber(lol);
+        break;
     default:
         sys_exit(-1);
         break;
