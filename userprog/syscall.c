@@ -223,6 +223,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
         break;
     case SYS_MKDIR:
         // bool mkdir(const char *dir);
+        // filesys create and mark it as directory in inode_disk
         printf("To Implement\n");
         break;
     case SYS_READDIR:
@@ -231,18 +232,23 @@ void syscall_handler(struct intr_frame *f UNUSED)
         break;
     case SYS_ISDIR:
         // bool isdir (int fd);
-        printf("To Implement\n");
-        break;
-    case SYS_INUMBER:
-        // int inumber (int fd);
-        printf("To Implement\n");
         if (!is_valid_pointer((char *)f->esp + 4))
         {
             thread_current()->exit_status = -1;
             thread_exit();
         }
-        struct inode *lol = (struct inode *)((char *)f->esp + 4);
-        f->eax = inode_get_inumber(lol);
+        fd = *(int *)((char *)f->esp + 4);
+        f->eax = thread_current()->files[fd]->file->inode->data.is_dir != 0 ? 1 : 0;
+        break;
+    case SYS_INUMBER:
+        // int inumber (int fd);
+        if (!is_valid_pointer((char *)f->esp + 4))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        fd = *(int *)((char *)f->esp + 4);
+        f->eax = inode_get_inumber(thread_current()->files[fd]->file->inode);
         break;
     default:
         sys_exit(-1);
@@ -268,7 +274,6 @@ int sys_exec(const char *file)
     {
         return -1;
     }
-
     return process_execute(file);
 }
 
@@ -457,3 +462,16 @@ void sys_close(int fd)
     lock_release(&file_lock);
     return 0;
 }
+
+bool chdir(const char *dir) {}
+
+// leading slash means start with root.
+// dir open root
+// dir lookup with root and loopkup next directory
+// if worked, inode is opened and dir_lookup next in path
+// dir_close on current
+// dir_open on new
+// keep going until lookup fails
+bool mkdir(const char *dir) {}
+
+bool readdir(int fd, char *name) {}
