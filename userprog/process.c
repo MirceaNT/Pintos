@@ -58,6 +58,8 @@ tid_t process_execute(const char *file_name)
     {
         palloc_free_page(fn_copy);
     }
+    struct thread *new_thread = find_thread(tid);
+    new_thread->cur_dir = thread_current()->cur_dir;
     sema_down(&thread_current()->load);
 
     return (thread_current()->loaded == 1) ? tid : -1;
