@@ -7,6 +7,7 @@
 
 #include "synch.h"
 
+#include "filesys/directory.h"
 /* States in a thread's life cycle. */
 enum thread_status
 {
@@ -92,7 +93,6 @@ struct fd_entry
 {
     int fd;
     struct file *file;
-    enum file_type file_or_dir;
 };
 struct thread
 {
@@ -127,6 +127,9 @@ struct thread
     struct semaphore load;
     struct thread *parent;
     struct file *execute;
+
+    // for filesys
+    struct dir cur_dir;
 };
 
 struct thread *find_thread(tid_t);
