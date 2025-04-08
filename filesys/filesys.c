@@ -8,6 +8,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -74,7 +75,16 @@ struct file *
 filesys_open(const char *name)
 {
     // printf("%d tid, function: %s, arg: %s\n", thread_current(), "filesys_open", name);
-    struct dir *dir = dir_open_root();
+    struct dir *dir;
+    if (thread_current()->cur_dir.inode == NULL)
+    {
+        dir = dir_open_root();
+    }
+    else
+    {
+        dir = dir_open(thread_current()->cur_dir.inode);
+    }
+
     struct inode *inode = NULL;
 
     if (dir != NULL)
