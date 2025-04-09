@@ -129,7 +129,7 @@ struct thread
     struct file *execute;
 
     // for filesys
-    struct dir cur_dir;
+    struct dir *cur_dir;
 };
 
 struct thread *find_thread(tid_t);
