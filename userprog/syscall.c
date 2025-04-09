@@ -219,16 +219,38 @@ void syscall_handler(struct intr_frame *f UNUSED)
         break;
     case SYS_CHDIR:
         // bool chdir (const char *dir)
-        printf("To Implement\n");
+        if (!is_valid_pointer((char *)f->esp + 4))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        file = (char *)((char *)f->esp + 4);
+        /*
+
+        TODO
+
+
+        */
         break;
     case SYS_MKDIR:
         // bool mkdir(const char *dir);
         // filesys create and mark it as directory in inode_disk
-        printf("To Implement\n");
+        if (!is_valid_pointer((char *)f->esp + 4))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        file = (char *)((char *)f->esp + 4);
+        /*
+
+        TODO
+
+
+        */
         break;
     case SYS_READDIR:
         // bool readdir (int fd, char *name);
-        printf("To Implement\n");
+
         break;
     case SYS_ISDIR:
         // bool isdir (int fd);
@@ -463,7 +485,9 @@ void sys_close(int fd)
     return 0;
 }
 
-bool chdir(const char *dir) {}
+bool sys_chdir(const char *dir)
+{
+}
 
 // leading slash means start with root.
 // dir open root
@@ -472,6 +496,11 @@ bool chdir(const char *dir) {}
 // dir_close on current
 // dir_open on new
 // keep going until lookup fails
-bool mkdir(const char *dir) {}
 
-bool readdir(int fd, char *name) {}
+bool sys_mkdir(const char *dir_path)
+{
+}
+
+bool sys_readdir(int fd, char *name)
+{
+}

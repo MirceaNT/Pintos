@@ -21,4 +21,7 @@ void sys_close(int fd);
 
 bool is_valid_pointer(void *);
 
+bool sys_chdir(const char *);
+bool sys_mkdir(const char *);
+
 #endif /* userprog/syscall.h */
