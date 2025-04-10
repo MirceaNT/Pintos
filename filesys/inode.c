@@ -199,7 +199,7 @@ void inode_init(void)
  This should be finished
  */
 
-bool inode_create(block_sector_t sector, off_t length)
+bool inode_create(block_sector_t sector, off_t length, bool directory)
 {
     struct inode_disk *disk_inode = calloc(1, sizeof *disk_inode);
     bool success = false;
@@ -240,7 +240,7 @@ bool inode_create(block_sector_t sector, off_t length)
             disk_inode->direct[i] = 0;
         disk_inode->single_indirect_block = 0;
         disk_inode->double_indirect_block = 0;
-
+        disk_inode->is_dir = directory ? 1 : 0;
         int allocated = 0;
 
         // Allocate direct blocks
