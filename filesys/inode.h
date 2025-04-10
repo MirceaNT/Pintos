@@ -10,18 +10,34 @@
 
 struct bitmap;
 struct lock global_buffer_lock;
-
+#define NUM_DIRECT 20
 /* On-disk inode.
  * Must be exactly BLOCK_SECTOR_SIZE bytes long. */
+
+// struct inode_disk
+// {
+//     block_sector_t double_indirect_block;
+//     // block_sector_t start; /* First data sector. */
+//     // TODO: REMOVE WHEN CHANGED FUNCTIONS
+//     off_t length;                         /* File size in bytes. */
+//     unsigned magic;                       /* Magic number. */
+//     uint32_t is_dir;                      // made it uint since easier for alignment of the rest of the array
+//     uint32_t unused[124]; /* Not used. */ // TODO: CHANGE TO 124 AFTER COMMENTING OUT START. (FUNCTIONS aren't changed to accomodate for the double indirect block yet)
+// };
+
 struct inode_disk
 {
+    int32_t length;  /* File size in bytes. */
+    unsigned magic;  /* Magic number. */
+    uint32_t is_dir; /* 1 if directory, 0 if regular file. */
+    /* Direct block pointers */
+    block_sector_t direct[NUM_DIRECT];
+    /* Single-indirect pointer */
+    block_sector_t single_indirect_block;
+    /* Double-indirect pointer */
     block_sector_t double_indirect_block;
-    // block_sector_t start; /* First data sector. */ // TODO: REMOVE WHEN CHANGED FUNCTIONS
-    block_sector_t lol;                   // place holder for start
-    off_t length;                         /* File size in bytes. */
-    unsigned magic;                       /* Magic number. */
-    uint32_t is_dir;                      // made it uint since easier for alignment of the rest of the array
-    uint32_t unused[123]; /* Not used. */ // TODO: CHANGE TO 124 AFTER COMMENTING OUT START. (FUNCTIONS aren't changed to accomodate for the double indirect block yet)
+    /* Padding to make inode_disk exactly one sector. */
+    uint8_t unused[BLOCK_SECTOR_SIZE - (4 + 4 + 4 + NUM_DIRECT * 4 + 4 + 4)];
 };
 
 /* In-memory inode. */
