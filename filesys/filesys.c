@@ -60,7 +60,7 @@ bool filesys_create(const char *name, off_t initial_size)
     }
     else
     {
-        dir = thread_current()->cur_dir;
+        dir = dir_reopen(thread_current()->cur_dir);
     }
     bool success = (dir != NULL && free_map_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
 
@@ -90,7 +90,7 @@ filesys_open(const char *name)
     }
     else
     {
-        dir = thread_current()->cur_dir;
+        dir = dir_reopen(thread_current()->cur_dir);
     }
 
     struct inode *inode = NULL;
@@ -118,7 +118,7 @@ bool filesys_remove(const char *name)
     }
     else
     {
-        dir = thread_current()->cur_dir;
+        dir = dir_reopen(thread_current()->cur_dir);
     }
     bool success = dir != NULL && dir_remove(dir, name);
 
