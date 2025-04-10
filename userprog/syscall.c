@@ -509,8 +509,7 @@ char *parse_path(char *name, int num)
         return NULL;
     }
 
-    // Option: If the path starts with '/' we could choose to skip that token.
-    //    For now, we simply tokenize on '/' (strtok_r will skip any empty tokens)
+    // check if starting in root or current directory in respective function
     char *save_ptr;
     char *token = strtok_r(path_copy, "/", &save_ptr);
     int index = 0;
