@@ -485,6 +485,56 @@ void sys_close(int fd)
     return 0;
 }
 
+char *duplicate_string(const char *s)
+{
+    size_t len = strlen(s) + 1;
+    char *dup = malloc(len);
+    if (dup != NULL)
+        memcpy(dup, s, len);
+    return dup;
+}
+
+char *parse_path(char *name, int num)
+{
+    // Check that name is not NULL or empty
+    if (name == NULL || strlen(name) == 0)
+    {
+        return NULL;
+    }
+
+    // Duplicate the path so we can tokenize it without altering the original
+    char *path_copy = duplicate_string(name);
+    if (path_copy == NULL)
+    {
+        return NULL;
+    }
+
+    // Option: If the path starts with '/' we could choose to skip that token.
+    //    For now, we simply tokenize on '/' (strtok_r will skip any empty tokens)
+    char *save_ptr;
+    char *token = strtok_r(path_copy, "/", &save_ptr);
+    int index = 0;
+    char *result = NULL;
+
+    while (token != NULL)
+    {
+        // Skip empty tokens (which can happen with consecutive '/')
+        if (strlen(token) > 0)
+        {
+            if (index == num)
+            {
+                result = duplicate_string(token);
+                break;
+            }
+            index++;
+        }
+        token = strtok_r(NULL, "/", &save_ptr);
+    }
+
+    free(path_copy);
+    return result;
+}
+
 bool sys_chdir(const char *dir)
 {
 }
