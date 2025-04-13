@@ -229,12 +229,6 @@ void syscall_handler(struct intr_frame *f UNUSED)
         }
         file = *(char **)((char *)f->esp + 4);
         f->eax = sys_chdir(file);
-        /*
-
-        TODO
-
-
-        */
         break;
     case SYS_MKDIR:
         // bool mkdir(const char *dir);
@@ -246,16 +240,23 @@ void syscall_handler(struct intr_frame *f UNUSED)
         }
         file = *(char **)((char *)f->esp + 4);
         f->eax = sys_mkdir(file);
-        /*
-
-        TODO
-
-
-        */
         break;
     case SYS_READDIR:
         // bool readdir (int fd, char *name);
+        if (!is_valid_pointer((char *)f->esp + 4))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        fd = *(int *)((char *)f->esp + 4);
 
+        if (!is_valid_pointer((char *)f->esp + 8))
+        {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        file = *(char **)((char *)f->esp + 8);
+        f->eax = sys_readdir(fd, file);
         break;
     case SYS_ISDIR:
         // bool isdir (int fd);
@@ -301,7 +302,6 @@ int sys_exec(const char *file)
     {
         return -1;
     }
-    thread_current()->cur_dir = dir_open_root();
     return process_execute(file);
 }
 
@@ -310,15 +310,24 @@ int sys_wait(int pid)
     return process_wait(pid);
 }
 
-bool sys_create(const char *file, unsigned initial_size)
+bool sys_create(const char *path, unsigned initial_size)
 {
-    if (!is_valid_pointer(file))
+    if (!is_valid_pointer(path))
     {
         sys_exit(-1);
     }
-    lock_acquire(&file_lock);
-    bool success = filesys_create(file, initial_size);
-    lock_release(&file_lock);
+    struct path_result pr = resolve_path(path);
+    if (pr.parent == NULL || pr.final_name == NULL)
+    {
+        if (pr.final_name != NULL)
+            free(pr.final_name);
+        return false;
+    }
+
+    bool success = filesys_create(pr.parent, pr.final_name, initial_size);
+
+    free(pr.final_name);
+    dir_close(pr.parent);
     return success;
 }
 
@@ -342,6 +351,7 @@ int sys_open(const char *file)
     }
     lock_acquire(&file_lock);
     struct file *curFile = filesys_open(file);
+
     if (curFile == NULL)
     {
         lock_release(&file_lock);
@@ -509,6 +519,7 @@ char *parse_path(char *name, int num)
     }
 
     // Duplicate the path so we can tokenize it without altering the original
+    // had a problem compiling with strdup :(
     char *path_copy = duplicate_string(name);
     if (path_copy == NULL)
     {
@@ -538,6 +549,118 @@ char *parse_path(char *name, int num)
     }
 
     free(path_copy);
+    return result;
+}
+
+struct path_result resolve_path(const char *path)
+{
+    struct path_result result = {NULL, NULL};
+
+    if (path == NULL || strlen(path) == 0)
+        return result;
+
+    // ignore leading whitespace (IDK if it's a problem but you never know)
+    int i = 0;
+    while (path[i] == ' ')
+        i++;
+
+    struct dir *dir_ptr;
+    if (path[i] == '/')
+    {
+        // start at root
+        dir_ptr = dir_open_root();
+    }
+    else
+    {
+        // pls work
+        if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0)
+        {
+            return result;
+        }
+        if (thread_current()->cur_dir == NULL)
+            dir_ptr = dir_open_root();
+        else
+            dir_ptr = dir_reopen(thread_current()->cur_dir);
+    }
+    if (dir_ptr == NULL)
+        return result;
+
+    // get num tokens
+    int token_count = 0;
+    char *token = NULL;
+    while ((token = parse_path((char *)path, token_count)) != NULL)
+    {
+        free(token);
+        token_count++;
+    }
+    if (token_count == 0)
+    {
+        dir_close(dir_ptr);
+        return result;
+    }
+
+    // get last directory
+    for (int j = 0; j < token_count - 1; j++)
+    {
+        char *subtoken = parse_path((char *)path, j);
+        if (subtoken == NULL)
+        {
+            dir_close(dir_ptr);
+            return result;
+        }
+        if (strcmp(subtoken, ".") == 0)
+        {
+            free(subtoken);
+        }
+        else if (strcmp(subtoken, "..") == 0)
+        {
+            struct inode *parent_inode = NULL;
+            if (!dir_lookup(dir_ptr, "..", &parent_inode))
+            {
+                free(subtoken);
+                continue;
+            }
+            struct dir *temp = dir_open(parent_inode);
+            free(subtoken);
+            if (temp == NULL)
+            {
+                dir_close(dir_ptr);
+                return result;
+            }
+            dir_close(dir_ptr);
+            dir_ptr = temp;
+        }
+        else
+        {
+            struct inode *found = NULL;
+            if (!dir_lookup(dir_ptr, subtoken, &found))
+            {
+                free(subtoken);
+                dir_close(dir_ptr);
+                return result;
+            }
+            struct dir *temp = dir_open(found);
+            free(subtoken);
+            if (temp == NULL)
+            {
+                dir_close(dir_ptr);
+                return result;
+            }
+            dir_close(dir_ptr);
+            dir_ptr = temp;
+        }
+    }
+
+    // final word is what will be opened
+    char *final_token = parse_path((char *)path, token_count - 1);
+    if (final_token == NULL)
+    {
+        dir_close(dir_ptr);
+        return result;
+    }
+
+    result.parent = dir_ptr;
+    result.final_name = final_token;
     return result;
 }
 
@@ -652,7 +775,6 @@ bool sys_chdir(const char *name)
         }
     }
 
-    // Set the thread's current directory to the target directory.
     if (thread_current()->cur_dir != NULL)
     {
         dir_close(thread_current()->cur_dir);
@@ -848,16 +970,26 @@ bool sys_mkdir(const char *name)
 
     // find the parent, if not found, use itself (root)
     block_sector_t parent_sector = 0;
-    struct inode *parent_inode_lookup = NULL;
-    if (!dir_lookup(parent, "..", &parent_inode_lookup))
+    if (parent == NULL)
     {
-        parent_sector = inode_get_inumber(dir_get_inode(parent));
+        // Root should be only case it's null
+        struct dir *root = dir_open_root();
+        if (root == NULL)
+        {
+            dir_close(new_directory);
+            free_map_release(new_sector, 1);
+            free(new_name);
+            return false;
+        }
+        parent_sector = inode_get_inumber(dir_get_inode(root));
+        dir_close(root);
     }
     else
     {
-        parent_sector = inode_get_inumber(parent_inode_lookup);
+        parent_sector = inode_get_inumber(dir_get_inode(parent));
     }
-    // now add that to new directory
+
+    // Add the ".." entry to new_directory.
     if (!dir_add(new_directory, "..", parent_sector))
     {
         dir_close(new_directory);
@@ -879,4 +1011,35 @@ bool sys_mkdir(const char *name)
 
 bool sys_readdir(int fd, char *name)
 {
+    struct file *current_file = thread_current()->files[fd]->file;
+    if (current_file == NULL)
+    {
+        return false;
+    }
+
+    // ensure directory
+    struct inode *inode = file_get_inode(current_file);
+    if (inode == NULL || !inode->data.is_dir)
+    {
+        return false;
+    }
+
+    char entry[NAME_MAX + 1];
+
+    // loop through the directory
+    while (dir_readdir((struct dir *)current_file, entry))
+    {
+        // ignore the hardcoded stuff
+        if (strcmp(entry, ".") == 0 || strcmp(entry, "..") == 0)
+        {
+            continue;
+        }
+
+        // copy the entry
+        strlcpy(name, entry, NAME_MAX + 1);
+        return true;
+    }
+
+    // empty directory
+    return false;
 }
