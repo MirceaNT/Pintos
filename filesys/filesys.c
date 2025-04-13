@@ -10,6 +10,8 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 
+#include "userprog/syscall.h"
+
 /* Partition that contains the file system. */
 struct block *fs_device;
 
@@ -49,27 +51,37 @@ void filesys_done(void)
  * Returns true if successful, false otherwise.
  * Fails if a file named NAME already exists,
  * or if internal memory allocation fails. */
-bool filesys_create(const char *name, off_t initial_size)
+bool filesys_create(struct dir *parent, const char *file_name, off_t initial_size)
 {
-    // printf("%d tid, %s\n", thread_current(), "filesys_create");
-    block_sector_t inode_sector = 0;
-    struct dir *dir;
-    if (thread_current()->cur_dir == NULL)
+    if (parent == NULL || file_name == NULL || strlen(file_name) == 0)
     {
-        dir = dir_open_root();
+        return false;
     }
-    else
-    {
-        dir = dir_reopen(thread_current()->cur_dir);
-    }
-    bool success = (dir != NULL && free_map_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size, false) && dir_add(dir, name, inode_sector));
 
-    if (!success && inode_sector != 0)
+    struct inode *inode_check = NULL;
+    if (dir_lookup(parent, file_name, &inode_check))
+    {
+        return false;
+    }
+
+    block_sector_t inode_sector = 0;
+    if (!free_map_allocate(1, &inode_sector))
+    {
+        return false;
+    }
+
+    if (!inode_create(inode_sector, initial_size, false))
+    {
+        free_map_release(inode_sector, 1);
+        return false;
+    }
+
+    bool success = dir_add(parent, file_name, inode_sector);
+    if (!success)
     {
         free_map_release(inode_sector, 1);
     }
-    dir_close(dir);
-
+    // the moment you realize this could've been fewer if statements
     return success;
 }
 
@@ -79,29 +91,88 @@ bool filesys_create(const char *name, off_t initial_size)
  * Fails if no file named NAME exists,
  * or if an internal memory allocation fails. */
 // this has to be the current directory
-struct file *
-filesys_open(const char *name)
+struct file *filesys_open(const char *name)
 {
-    // printf("%d tid, function: %s, arg: %s\n", thread_current(), "filesys_open", name);
-    struct dir *dir;
-    if (thread_current()->cur_dir == NULL)
+    // all persistance fails without these 4 lines
+    if (strcmp(name, "/") == 0)
     {
-        dir = dir_open_root();
+        return (struct file *)dir_open_root();
+    }
+
+    struct path_result pr = resolve_path(name);
+    if (pr.parent == NULL || pr.final_name == NULL)
+    {
+        if (strcmp(name, ".") == 0)
+        {
+            if (!thread_current()->cur_dir->inode->removed)
+            {
+                struct inode *inode = NULL;
+                if (!dir_lookup(thread_current()->cur_dir, ".", &inode))
+                {
+                    free(pr.final_name);
+                    dir_close(pr.parent);
+                    return NULL;
+                }
+                free(pr.final_name);
+                dir_close(pr.parent);
+
+                if (inode == NULL)
+                {
+                    return NULL;
+                }
+
+                if (inode->data.is_dir)
+                {
+                    return (struct file *)dir_open(inode);
+                }
+                else
+                {
+                    return file_open(inode);
+                }
+            }
+            else
+            {
+                if (pr.final_name != NULL)
+                {
+                    free(pr.final_name);
+                }
+                return NULL;
+            }
+        }
+        else
+        {
+            // it once did something
+        }
+    }
+
+    // lookup final token in given directory
+    struct inode *inode = NULL;
+    if (pr.parent == NULL || pr.final_name == NULL)
+    {
+        return NULL;
+    }
+    if (!dir_lookup(pr.parent, pr.final_name, &inode))
+    {
+        free(pr.final_name);
+        dir_close(pr.parent);
+        return NULL;
+    }
+    free(pr.final_name);
+    dir_close(pr.parent);
+
+    if (inode == NULL)
+    {
+        return NULL;
+    }
+
+    if (inode->data.is_dir)
+    {
+        return (struct file *)dir_open(inode);
     }
     else
     {
-        dir = dir_reopen(thread_current()->cur_dir);
+        return file_open(inode);
     }
-
-    struct inode *inode = NULL;
-
-    if (dir != NULL)
-    {
-        dir_lookup(dir, name, &inode);
-    }
-    dir_close(dir);
-
-    return file_open(inode);
 }
 
 /* Deletes the file named NAME.
@@ -110,19 +181,83 @@ filesys_open(const char *name)
  * or if an internal memory allocation fails. */
 bool filesys_remove(const char *name)
 {
-    // printf("%d tid, %s\n", thread_current(), "filesys_remove");
-    struct dir *dir;
-    if (thread_current()->cur_dir == NULL)
+    // can't remove root
+    if (strcmp(name, "/") == 0)
     {
-        dir = dir_open_root();
+        return false;
     }
-    else
-    {
-        dir = dir_reopen(thread_current()->cur_dir);
-    }
-    bool success = dir != NULL && dir_remove(dir, name);
 
-    dir_close(dir);
+    // get director and what to remove
+    struct path_result pr = resolve_path(name);
+    if (pr.parent == NULL || pr.final_name == NULL)
+    {
+        if (pr.final_name != NULL)
+            free(pr.final_name);
+        return false;
+    }
+
+    // lookup in parent
+    struct inode *inode = NULL;
+    if (!dir_lookup(pr.parent, pr.final_name, &inode))
+    {
+        free(pr.final_name);
+        dir_close(pr.parent);
+        return false;
+    }
+
+    // remove cwd cases
+    bool removing_cwd = false;
+    if (thread_current()->cur_dir != NULL)
+    {
+        struct inode *cwd_inode = dir_get_inode(thread_current()->cur_dir);
+        if (cwd_inode != NULL &&
+            inode_get_inumber(cwd_inode) == inode_get_inumber(inode))
+        {
+            removing_cwd = true;
+        }
+    }
+
+    // only what I hardcoded should be in there before removal
+    if (inode->data.is_dir)
+    {
+        struct dir *target_dir = dir_open(inode);
+        if (target_dir == NULL)
+        {
+            free(pr.final_name);
+            dir_close(pr.parent);
+            return false;
+        }
+
+        bool is_empty = true;
+        char entry[NAME_MAX + 1];
+        while (dir_readdir(target_dir, entry))
+        {
+            if (strcmp(entry, ".") != 0 && strcmp(entry, "..") != 0)
+            {
+                is_empty = false;
+                break;
+            }
+        }
+        dir_close(target_dir);
+        if (!is_empty)
+        {
+            free(pr.final_name);
+            dir_close(pr.parent);
+            return false;
+        }
+    }
+
+    // remove from directory
+    bool success = dir_remove(pr.parent, pr.final_name);
+
+    free(pr.final_name);
+    dir_close(pr.parent);
+
+    if (success && removing_cwd)
+    {
+        dir_close(thread_current()->cur_dir);
+        thread_current()->cur_dir = dir_reopen(pr.parent);
+    }
 
     return success;
 }
