@@ -43,7 +43,11 @@ void file_close(struct file *file)
     // printf("%d tid, %s\n", thread_current(), "file_close");
     if (file != NULL)
     {
-        file_allow_write(file);
+        if (!file->inode->data.is_dir)
+        {
+            file_allow_write(file);
+        }
+
         inode_close(file->inode);
         free(file);
     }
