@@ -8,8 +8,7 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@utexas.edu>
-FirstName LastName <email@utexas.edu>
+Mircea Tatulescu <mirceatatulescu@utexas.edu>
 
 ---- PRELIMINARIES ----
 
@@ -29,8 +28,26 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+#define NUM_DIRECT 20
+made this a macro since I initially only had double indirect block, and I was scared to change it since I had file growth working, but would timeout
+
+struct inode_disk
+{
+    int32_t length;  /* File size in bytes. */
+    unsigned magic;  /* Magic number. */
+    uint32_t is_dir; // 1 if dir; 0 if regular file
+    block_sector_t direct[NUM_DIRECT];
+    block_sector_t single_indirect_block;
+    block_sector_t double_indirect_block;
+    uint8_t unused[BLOCK_SECTOR_SIZE - (4 + 4 + 4 + NUM_DIRECT * 4 + 4 + 4)];
+};
+
+Instead of a start, I added the direct, single, and double indirect blocks.
+
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
+
+20 * 512B + 128*512B + 128*128*512B = 8,464,384B
 
 ---- RATIONALE ----
 
@@ -39,6 +56,9 @@ FirstName LastName <email@utexas.edu>
 >> indirect blocks?  If not, why did you choose an alternative inode
 >> structure, and what advantages and disadvantages does your
 >> structure have, compared to a multilevel index?
+
+I chose to use the direct, indirect, and doubly indirect. Initially I only had the doubly indirect since I could fit the 8MB; however, the access times were pretty big causing me to fail some cases. I'm  assuming I would've been able to have just used the doubly indirect block had I implemented the buffer cache,
+but that wasn't necessary if I could just use the direct, singly, and doubly indirect approach to reduce the access times.
 
                             SUBDIRECTORIES
                             ==============
@@ -49,15 +69,79 @@ FirstName LastName <email@utexas.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+#define NAME_MAX 40
+it was 14, but some of the names were bigger, so I needed to increase this number
+
+struct path_result
+{
+    struct dir *parent; // The directory in which we will add entry
+    char *final_name;   // the name of what will be added (file or dir)
+};
+This was used to keep track of where to add new inodes I would easily be able to do dir_add after obtaining a block sector. 
+
+
+struct thread
+{
+    /* Owned by thread.c. */
+    tid_t tid;                 /* Thread identifier. */
+    enum thread_status status; /* Thread state. */
+    char name[16];             /* Name (for debugging purposes). */
+    uint8_t *stack;            /* Saved stack pointer. */
+    int priority;              /* Priority. */
+    struct list_elem allelem;  /* List element for all threads list. */
+
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem; /* List element. */
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir; /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic; /* Detects stack overflow. */
+
+    // added by Mircea
+    struct fd_entry *files[128];
+    char first_word[128];
+    int loaded;
+    int wait;
+    int exit;
+    int exit_status;
+    struct semaphore semaphore1;
+    struct semaphore semaphore2;
+    struct semaphore load;
+    struct thread *parent;
+    struct file *execute;
+
+    // for filesys
+    struct dir *cur_dir;
+};
+
+I added struct dir* cur_dir for the current directory of a thread.
+
+I didn't make any changes to my dir or dir_entry as having the path_result struct allowed to me to work around it. I needed to write my own str_dup since I was getting bugs when doing #include <string.h>
+
+
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
 
+I created two helper functions. Parse_path which is used to return the string in the ith element of the "/". For example Parse_path(hello/world, 1) would return a pointer to world.
+I then had a struct which would contain the directory to which I would add a file or directory as well as the name of the file or directory to be created.
+
+The first thing I do is check if the first character is a "/". If so, I know it's the root, and I begin my search from root; otherwise, I begin from the current working directiry (cur_dir), then I kept parsing until I reach the end of the path and I do whatever operation needed with 
+that information. I added the . and .. as entries in my directory and properly linked them as well in order to reach any created files or directories.
+
+
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+I just had the current directory as part of my thread struct since it was easy to keep track of and if I didn't have / to start at root, accessing it using thread_current()->cur_dir was simple.
 
                            SURVEY QUESTIONS
                            ================

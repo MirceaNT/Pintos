@@ -29,14 +29,10 @@ struct inode_disk
 {
     int32_t length;  /* File size in bytes. */
     unsigned magic;  /* Magic number. */
-    uint32_t is_dir; /* 1 if directory, 0 if regular file. */
-    /* Direct block pointers */
+    uint32_t is_dir; // 1 if dir; 0 if regular file
     block_sector_t direct[NUM_DIRECT];
-    /* Single-indirect pointer */
     block_sector_t single_indirect_block;
-    /* Double-indirect pointer */
     block_sector_t double_indirect_block;
-    /* Padding to make inode_disk exactly one sector. */
     uint8_t unused[BLOCK_SECTOR_SIZE - (4 + 4 + 4 + NUM_DIRECT * 4 + 4 + 4)];
 };
 
